@@ -118,7 +118,8 @@ impl QuantAct {
     }
 
     /// Build from a row producer `fill(t, row)` (e.g. a fused LayerNorm): each token's f32 row is produced into a
-    /// scratch buffer and quantised straight into `layout`, parallel over token pairs when the work is large.
+    /// thread-local scratch buffer, quantised with NEON into a scratch int8 row, then copied into `layout` by
+    /// 8-byte slabs. Parallel over chunks of token pairs when the work is large.
     pub fn from_rows<F: Fn(usize, &mut [f32]) + Sync>(
         n: usize,
         inp: usize,
@@ -132,84 +133,77 @@ impl QuantAct {
         let mut q = vec![0i8; n_pad * inp];
         let mut scales = vec![0f32; n_pad * ng];
         let slabs = inp / 8;
-        // quantise one f32 row into `dst` (a token's row for Rows, or the pair block for Pairs with `half`)
-        let quant_into = |row: &[f32], sc: &mut [f32], write: &mut dyn FnMut(usize, i8)| {
-            for g in 0..ng {
-                let sg = &row[g * group..(g + 1) * group];
-                let amax = sg.iter().fold(0f32, |m, v| m.max(v.abs()));
-                let s = if amax == 0.0 { 1.0 } else { amax / 127.0 };
-                sc[g] = s;
-                let inv = 1.0 / s;
-                for (c, v) in sg.iter().enumerate() {
-                    write(
-                        g * group + c,
-                        (v * inv).round_ties_even().clamp(-127.0, 127.0) as i8,
-                    );
+        let (qp, sp) = (q.as_mut_ptr() as usize, scales.as_mut_ptr() as usize);
+        let do_token = |t: usize, tmp: &mut [f32], qrow: &mut [i8]| {
+            fill(t, tmp);
+            // SAFETY: token t owns its scale slots and its bytes in `q` (row t, or its half of pair t/2); tasks are disjoint.
+            let ds = unsafe { std::slice::from_raw_parts_mut((sp as *mut f32).add(t * ng), ng) };
+            match layout {
+                Layout::Rows => {
+                    let dq = unsafe {
+                        std::slice::from_raw_parts_mut((qp as *mut i8).add(t * inp), inp)
+                    };
+                    for g in 0..ng {
+                        ds[g] = quantize_group(
+                            &tmp[g * group..(g + 1) * group],
+                            &mut dq[g * group..(g + 1) * group],
+                        );
+                    }
+                }
+                Layout::Pairs => {
+                    for g in 0..ng {
+                        ds[g] = quantize_group(
+                            &tmp[g * group..(g + 1) * group],
+                            &mut qrow[g * group..(g + 1) * group],
+                        );
+                    }
+                    let (tp, half) = (t / 2, t % 2);
+                    let dst = unsafe {
+                        std::slice::from_raw_parts_mut(
+                            (qp as *mut i8).add(tp * slabs * 16),
+                            slabs * 16,
+                        )
+                    };
+                    for sl in 0..slabs {
+                        dst[sl * 16 + half * 8..sl * 16 + half * 8 + 8]
+                            .copy_from_slice(&qrow[sl * 8..sl * 8 + 8]);
+                    }
                 }
             }
         };
-        let parallel = n * inp >= crate::tensor::par_min_elems();
-        match layout {
-            Layout::Rows => {
-                let work = |t: usize, dq: &mut [i8], ds: &mut [f32], tmp: &mut [f32]| {
-                    fill(t, tmp);
-                    quant_into(tmp, ds, &mut |k, v| dq[k] = v);
-                };
-                if parallel {
-                    q.par_chunks_mut(inp)
-                        .zip(scales.par_chunks_mut(ng))
-                        .take(n)
-                        .enumerate()
-                        .for_each(|(t, (dq, ds))| {
-                            let mut tmp = vec![0f32; inp];
-                            work(t, dq, ds, &mut tmp);
-                        });
-                } else {
-                    let mut tmp = vec![0f32; inp];
-                    for t in 0..n {
-                        work(
-                            t,
-                            &mut q[t * inp..(t + 1) * inp],
-                            &mut scales[t * ng..(t + 1) * ng],
-                            &mut tmp,
-                        );
-                    }
+        thread_local! {
+            static SCRATCH: std::cell::RefCell<(Vec<f32>, Vec<i8>)> = const { std::cell::RefCell::new((Vec::new(), Vec::new())) };
+        }
+        let with_scratch = |f: &dyn Fn(&mut [f32], &mut [i8])| {
+            SCRATCH.with(|c| {
+                let mut b = c.borrow_mut();
+                if b.0.len() < inp {
+                    b.0.resize(inp, 0.0);
+                    b.1.resize(inp, 0);
                 }
-            }
-            Layout::Pairs => {
-                let pair_len = slabs * 16;
-                let work = |tp: usize, dst: &mut [i8], sc2: &mut [f32], tmp: &mut [f32]| {
-                    for half in 0..2 {
-                        let t = 2 * tp + half;
-                        if t >= n {
-                            break;
+                let (tmp, qrow) = &mut *b;
+                f(&mut tmp[..inp], &mut qrow[..inp]);
+            })
+        };
+        if n * inp >= crate::tensor::par_min_elems() {
+            // chunks of whole token pairs so two tasks never share a pair block
+            let pairs = n.div_ceil(2);
+            let per_pairs = pairs.div_ceil(crate::tensor::threads() * 4).max(1);
+            (0..pairs.div_ceil(per_pairs))
+                .into_par_iter()
+                .for_each(|c| {
+                    with_scratch(&|tmp, qrow| {
+                        for t in c * per_pairs * 2..((c + 1) * per_pairs * 2).min(n) {
+                            do_token(t, tmp, qrow);
                         }
-                        fill(t, tmp);
-                        quant_into(tmp, &mut sc2[half * ng..(half + 1) * ng], &mut |k, v| {
-                            dst[(k / 8) * 16 + half * 8 + k % 8] = v
-                        });
-                    }
-                };
-                if parallel {
-                    q.par_chunks_mut(pair_len)
-                        .zip(scales.par_chunks_mut(2 * ng))
-                        .enumerate()
-                        .for_each(|(tp, (dst, sc2))| {
-                            let mut tmp = vec![0f32; inp];
-                            work(tp, dst, sc2, &mut tmp);
-                        });
-                } else {
-                    let mut tmp = vec![0f32; inp];
-                    for tp in 0..n_pad / 2 {
-                        work(
-                            tp,
-                            &mut q[tp * pair_len..(tp + 1) * pair_len],
-                            &mut scales[tp * 2 * ng..(tp + 1) * 2 * ng],
-                            &mut tmp,
-                        );
-                    }
+                    })
+                });
+        } else {
+            with_scratch(&|tmp, qrow| {
+                for t in 0..n {
+                    do_token(t, tmp, qrow);
                 }
-            }
+            });
         }
         let mut scales_t = vec![0f32; ng * n_pad];
         for t in 0..n {
@@ -237,5 +231,67 @@ impl QuantAct {
             Layout::Rows => self.x[t * self.inp + k],
             Layout::Pairs => self.x[((t / 2) * (self.inp / 8) + k / 8) * 16 + (t % 2) * 8 + k % 8],
         }
+    }
+}
+
+/// Quantise one group: returns the scale (absmax/127, 1.0 for an all-zero group) and writes int8 codes.
+/// Round half to even (`frintn`), identical to the scalar `round_ties_even`; results are bit-identical across paths.
+#[inline]
+pub fn quantize_group(src: &[f32], dst: &mut [i8]) -> f32 {
+    #[cfg(target_arch = "aarch64")]
+    // SAFETY: NEON is baseline on aarch64; tails are handled by the scalar loops inside.
+    let amax = unsafe { absmax_neon(src) };
+    #[cfg(not(target_arch = "aarch64"))]
+    let amax = src.iter().fold(0f32, |m, v| m.max(v.abs()));
+    let s = if amax == 0.0 { 1.0 } else { amax / 127.0 };
+    let inv = 1.0 / s;
+    #[cfg(target_arch = "aarch64")]
+    // SAFETY: as above.
+    unsafe {
+        quantize_neon(src, inv, dst)
+    };
+    #[cfg(not(target_arch = "aarch64"))]
+    for (d, v) in dst.iter_mut().zip(src) {
+        *d = (v * inv).round_ties_even().clamp(-127.0, 127.0) as i8;
+    }
+    s
+}
+
+#[cfg(target_arch = "aarch64")]
+unsafe fn absmax_neon(src: &[f32]) -> f32 {
+    use std::arch::aarch64::*;
+    let mut m = vdupq_n_f32(0.0);
+    let mut i = 0;
+    while i + 4 <= src.len() {
+        m = vmaxq_f32(m, vabsq_f32(vld1q_f32(src.as_ptr().add(i))));
+        i += 4;
+    }
+    let mut amax = vmaxvq_f32(m);
+    while i < src.len() {
+        amax = amax.max(src[i].abs());
+        i += 1;
+    }
+    amax
+}
+
+#[cfg(target_arch = "aarch64")]
+unsafe fn quantize_neon(src: &[f32], inv: f32, dst: &mut [i8]) {
+    use std::arch::aarch64::*;
+    let vinv = vdupq_n_f32(inv);
+    let mut i = 0;
+    while i + 8 <= src.len() {
+        // frintn = round to nearest, ties to even; |v·inv| ≤ 127 so the saturating narrows never clamp
+        let a = vcvtq_s32_f32(vrndnq_f32(vmulq_f32(vld1q_f32(src.as_ptr().add(i)), vinv)));
+        let b = vcvtq_s32_f32(vrndnq_f32(vmulq_f32(
+            vld1q_f32(src.as_ptr().add(i + 4)),
+            vinv,
+        )));
+        let s8 = vqmovn_s16(vcombine_s16(vqmovn_s32(a), vqmovn_s32(b)));
+        vst1_s8(dst.as_mut_ptr().add(i), s8);
+        i += 8;
+    }
+    while i < src.len() {
+        dst[i] = (src[i] * inv).round_ties_even().clamp(-127.0, 127.0) as i8;
+        i += 1;
     }
 }
