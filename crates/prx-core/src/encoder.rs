@@ -2,7 +2,9 @@
 //! numerics documented in `docs/golden.md`. Ternary linears run in f32 (reference) or int8 (kernels), see `Precision`.
 use crate::format::ModelFile;
 use crate::subsampling::Subsampling;
-use crate::tensor::{dot, layer_norm, load_f32_shaped, sigmoid, silu};
+use crate::tensor::{
+    layer_norm, load_f32_shaped, par_rows, par_rows_cost, sigmoid, silu, silu_inplace,
+};
 use crate::ternary_linear::{Precision, TernaryLinear};
 use crate::Result;
 
@@ -22,7 +24,7 @@ impl FeedForward {
     pub fn forward(&self, x: &[f32], t: usize, y: &mut [f32]) {
         let mut hbuf = vec![0f32; t * self.h];
         self.w1.forward(x, t, &mut hbuf);
-        hbuf.iter_mut().for_each(|v| *v = silu(*v));
+        silu_inplace(&mut hbuf, self.h);
         self.w2.forward(&hbuf, t, y);
     }
 }
@@ -78,55 +80,103 @@ impl Attention {
         self.wp.forward(pos_emb, np, &mut rel_k);
         let scaling = 1.0 / (dh as f32).sqrt();
         let mut ctx = vec![0f32; t * d]; // [t, h*dh]
-                                         // work items: (head, row range); each writes a disjoint ctx[i, head*dh..] block
-        use rayon::prelude::*;
-        let rows_per = 16usize;
-        let n_chunks = t.div_ceil(rows_per);
-        let ctxp = ctx.as_mut_ptr() as usize;
-        let (q, k, v, rel_k) = (&q, &k, &v, &rel_k);
-        let (bias_u, bias_v) = (&self.bias_u, &self.bias_v);
-        (0..h * n_chunks).into_par_iter().for_each(|item| {
-            let (head, ci) = (item / n_chunks, item % n_chunks);
-            let (i0, i1) = (ci * rows_per, ((ci + 1) * rows_per).min(t));
-            // SAFETY: this task writes only ctx[i, head*dh..(head+1)*dh] for i in [i0, i1); disjoint across tasks.
-            let ctx = unsafe { std::slice::from_raw_parts_mut(ctxp as *mut f32, t * d) };
+        let np = 2 * t - 1;
+        // per-head contiguous operands: qu/qv [t,dh], k [t,dh], rel [np,dh], vᵀ [dh,t]
+        let (mut qu, mut qv, mut kh) = (
+            vec![0f32; h * t * dh],
+            vec![0f32; h * t * dh],
+            vec![0f32; h * t * dh],
+        );
+        let mut rel_h = vec![0f32; h * np * dh];
+        let mut vh_t = vec![0f32; h * dh * t];
+        for head in 0..h {
             let (bu, bv) = (
-                &bias_u[head * dh..(head + 1) * dh],
-                &bias_v[head * dh..(head + 1) * dh],
+                &self.bias_u[head * dh..(head + 1) * dh],
+                &self.bias_v[head * dh..(head + 1) * dh],
             );
-            let mut scores = vec![0f32; t];
-            let mut qu = vec![0f32; dh];
-            let mut qv = vec![0f32; dh];
-            for i in i0..i1 {
+            let base = head * t * dh;
+            for i in 0..t {
                 let qi = &q[i * d + head * dh..i * d + (head + 1) * dh];
+                let ki = &k[i * d + head * dh..i * d + (head + 1) * dh];
+                let vi = &v[i * d + head * dh..i * d + (head + 1) * dh];
                 for c in 0..dh {
-                    qu[c] = qi[c] + bu[c];
-                    qv[c] = qi[c] + bv[c];
+                    qu[base + i * dh + c] = qi[c] + bu[c];
+                    qv[base + i * dh + c] = qi[c] + bv[c];
+                    kh[base + i * dh + c] = ki[c];
+                    vh_t[head * dh * t + c * t + i] = vi[c];
                 }
+            }
+            for p in 0..np {
+                rel_h[head * np * dh + p * dh..head * np * dh + (p + 1) * dh]
+                    .copy_from_slice(&rel_k[p * d + head * dh..p * d + (head + 1) * dh]);
+            }
+        }
+        // one task per (head, block of 4 query rows): content scores, banded position scores, softmax, context
+        use rayon::prelude::*;
+        let n_blocks = t.div_ceil(4);
+        let ctxp = ctx.as_mut_ptr() as usize;
+        let (qu, qv, kh, rel_h, vh_t) = (&qu, &qv, &kh, &rel_h, &vh_t);
+        (0..h * n_blocks).into_par_iter().for_each(|item| {
+            let (head, blk) = (item / n_blocks, item % n_blocks);
+            let (i0, rows) = (blk * 4, (t - blk * 4).min(4));
+            let base = head * t * dh;
+            let mut s1 = vec![0f32; 4 * t];
+            crate::tensor::tile_f32(
+                &qu[base + i0 * dh..],
+                rows,
+                dh,
+                &kh[base..base + t * dh],
+                None,
+                t,
+                &mut s1,
+            );
+            // position band: rows i0..i0+rows need p ∈ [t-1-i, 2t-2-i] → union [t-1-(i0+rows-1), 2t-2-i0]
+            let p0 = t - 1 - (i0 + rows - 1);
+            let pn = (2 * t - 2 - i0) - p0 + 1;
+            let mut s2 = vec![0f32; 4 * pn];
+            crate::tensor::tile_f32(
+                &qv[base + i0 * dh..],
+                rows,
+                dh,
+                &rel_h[head * np * dh + p0 * dh..head * np * dh + (p0 + pn) * dh],
+                None,
+                pn,
+                &mut s2,
+            );
+            let mut probs = vec![0f32; 4 * t];
+            for r in 0..rows {
+                let i = i0 + r;
+                let row = &mut probs[r * t..(r + 1) * t];
                 let mut max = f32::NEG_INFINITY;
                 for j in 0..t {
-                    let kj = &k[j * d + head * dh..j * d + (head + 1) * dh];
-                    let p = t - 1 - i + j; // rel shift: position index for relative distance i-j
-                    let pj = &rel_k[p * d + head * dh..p * d + (head + 1) * dh];
-                    let sc = (dot(&qu, kj) + dot(&qv, pj)) * scaling;
-                    scores[j] = sc;
+                    let p = t - 1 - i + j - p0;
+                    let sc = (s1[r * t + j] + s2[r * pn + p]) * scaling;
+                    row[j] = sc;
                     max = max.max(sc);
                 }
                 let mut sum = 0f32;
-                for sv in scores.iter_mut() {
+                for sv in row.iter_mut() {
                     *sv = (*sv - max).exp();
                     sum += *sv;
                 }
                 let inv = 1.0 / sum;
-                let out = &mut ctx[i * d + head * dh..i * d + (head + 1) * dh];
-                out.iter_mut().for_each(|o| *o = 0.0);
-                for j in 0..t {
-                    let wgt = scores[j] * inv;
-                    let vj = &v[j * d + head * dh..j * d + (head + 1) * dh];
-                    for c in 0..dh {
-                        out[c] += wgt * vj[c];
-                    }
-                }
+                row.iter_mut().for_each(|sv| *sv *= inv);
+            }
+            let mut out = vec![0f32; 4 * dh];
+            crate::tensor::tile_f32(
+                &probs,
+                rows,
+                t,
+                &vh_t[head * dh * t..(head + 1) * dh * t],
+                None,
+                dh,
+                &mut out,
+            );
+            // SAFETY: this task writes only ctx[i, head*dh..(head+1)*dh] for its rows; tasks are disjoint.
+            let ctx = unsafe { std::slice::from_raw_parts_mut(ctxp as *mut f32, t * d) };
+            for r in 0..rows {
+                ctx[(i0 + r) * d + head * dh..(i0 + r) * d + (head + 1) * dh]
+                    .copy_from_slice(&out[r * dh..(r + 1) * dh]);
             }
         });
         self.wo.forward(&ctx, t, y);
@@ -176,27 +226,29 @@ impl ConvModule {
         let pad = (k - 1) / 2;
         let mut g = vec![0f32; t * 2 * d];
         self.pw1.forward(x, t, &mut g);
-        // GLU over channels: a * sigmoid(b), a = first half
+        // GLU over channels: a * sigmoid(b), a = first half — parallel over time rows
         let mut a = vec![0f32; t * d];
-        for i in 0..t {
+        par_rows(&mut a, d, |i, row| {
+            let gi = &g[i * 2 * d..(i + 1) * 2 * d];
             for c in 0..d {
-                a[i * d + c] = g[i * 2 * d + c] * sigmoid(g[i * 2 * d + d + c]);
+                row[c] = gi[c] * sigmoid(gi[d + c]);
             }
-        }
-        // depthwise conv over time, folded BN, SiLU
+        });
+        // depthwise conv over time (k taps), folded BN, SiLU — parallel over output rows
         let mut hbuf = vec![0f32; t * d];
-        for i in 0..t {
+        let (dw, dw_bias, a) = (&self.dw, &self.dw_bias, &a);
+        par_rows_cost(&mut hbuf, d, k, |i, row| {
             for c in 0..d {
-                let mut acc = self.dw_bias[c];
+                let mut acc = dw_bias[c];
                 for kk in 0..k {
                     let j = i as isize + kk as isize - pad as isize;
                     if j >= 0 && (j as usize) < t {
-                        acc += self.dw[c * k + kk] * a[j as usize * d + c];
+                        acc += dw[c * k + kk] * a[j as usize * d + c];
                     }
                 }
-                hbuf[i * d + c] = silu(acc);
+                row[c] = silu(acc);
             }
-        }
+        });
         self.pw2.forward(&hbuf, t, y);
     }
 }
@@ -425,7 +477,12 @@ impl Encoder {
         }
         if profiling {
             let total = t0.elapsed().as_secs_f64();
-            eprintln!("encoder profile ({:?}, T_e={te}): total {total:.3}s · subsampling {:.3} · ff {:.3} · attn {:.3} · conv {:.3} · norm {:.3}", self.precision, prof.subsampling, prof.ff, prof.attn, prof.conv, prof.norm);
+            use crate::ternary_linear::{GEMM_NS, QUANT_NS};
+            let (q, g) = (
+                QUANT_NS.swap(0, std::sync::atomic::Ordering::Relaxed),
+                GEMM_NS.swap(0, std::sync::atomic::Ordering::Relaxed),
+            );
+            eprintln!("encoder profile ({:?}, T_e={te}): total {total:.3}s · subsampling {:.3} · ff {:.3} · attn {:.3} · conv {:.3} · norm {:.3} · [ternary gemm {:.3}, quantize {:.3}]", self.precision, prof.subsampling, prof.ff, prof.attn, prof.conv, prof.norm, g as f64 * 1e-9, q as f64 * 1e-9);
         }
         (x, te)
     }

@@ -30,8 +30,12 @@ criterion_main!(benches, benches_i8);
 fn bench_i8(c: &mut Criterion) {
     use prx_core::kernels::gemm;
     use prx_core::packed::{QuantAct, TernaryMatrix};
+    let layout = prx_core::kernels::kernel().layout();
     use prx_core::trits::pack_row;
-    let mut g = c.benchmark_group("gemm_ternary_int8");
+    let mut g = c.benchmark_group(format!(
+        "gemm_ternary_int8_{:?}",
+        prx_core::kernels::kernel()
+    ));
     g.sample_size(10);
     for &(out, inp) in &SHAPES {
         let rb = inp.div_ceil(5);
@@ -43,10 +47,10 @@ fn bench_i8(c: &mut Criterion) {
         let s16: Vec<u8> = (0..out * inp / 128)
             .flat_map(|_| half::f16::from_f32(0.02).to_le_bytes())
             .collect();
-        let w = TernaryMatrix::from_packed(&q, &s16, out, inp, 128);
+        let w = TernaryMatrix::from_packed_layout(&q, &s16, out, inp, 128, layout);
         for &n in &TOKENS {
             let x: Vec<f32> = (0..n * inp).map(|i| (i % 13) as f32 * 0.1 - 0.6).collect();
-            let qa = QuantAct::quantize(&x, n, inp, 128);
+            let qa = QuantAct::quantize_layout(&x, n, inp, 128, layout);
             let mut y = vec![0f32; n * out];
             g.throughput(Throughput::Elements((n * out * inp) as u64));
             g.bench_with_input(BenchmarkId::new(format!("{out}x{inp}"), n), &n, |b, _| {

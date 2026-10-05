@@ -6,6 +6,11 @@ use crate::packed::{QuantAct, TernaryMatrix};
 use crate::tensor::linear;
 use crate::trits::dequant_matrix;
 use crate::{Error, Result};
+use std::sync::atomic::{AtomicU64, Ordering};
+
+/// Nanoseconds spent quantising activations / in GEMMs (diagnostics, `PRX_PROFILE`).
+pub static QUANT_NS: AtomicU64 = AtomicU64::new(0);
+pub static GEMM_NS: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Precision {
@@ -49,12 +54,13 @@ impl TernaryLinear {
                 out: q.out_features,
                 inp: q.in_features,
             },
-            Precision::Int8 => TernaryLinear::Int8(TernaryMatrix::from_packed(
+            Precision::Int8 => TernaryLinear::Int8(TernaryMatrix::from_packed_layout(
                 qw,
                 sc,
                 q.out_features,
                 q.in_features,
                 q.group_size,
+                crate::kernels::kernel().layout(),
             )),
         })
     }
@@ -77,11 +83,17 @@ impl TernaryLinear {
     pub fn prepare<'a>(&self, x: &'a [f32], n: usize) -> ActIn<'a> {
         match self {
             TernaryLinear::F32 { .. } => ActIn::F32(x),
-            TernaryLinear::Int8(m) => ActIn::Int8(QuantAct::quantize(x, n, m.inp, m.group)),
+            TernaryLinear::Int8(m) => {
+                let t0 = std::time::Instant::now();
+                let q = QuantAct::quantize_layout(x, n, m.inp, m.group, m.layout);
+                QUANT_NS.fetch_add(t0.elapsed().as_nanos() as u64, Ordering::Relaxed);
+                ActIn::Int8(q)
+            }
         }
     }
 
     pub fn forward_prepared(&self, a: &ActIn, n: usize, y: &mut [f32]) {
+        let t0 = std::time::Instant::now();
         match (self, a) {
             (TernaryLinear::F32 { w, out, inp }, ActIn::F32(x)) => {
                 linear(x, n, *inp, w, None, *out, y)
@@ -89,6 +101,7 @@ impl TernaryLinear {
             (TernaryLinear::Int8(m), ActIn::Int8(q)) => gemm(m, q, y, None),
             _ => panic!("precision mismatch between layer and prepared input"),
         }
+        GEMM_NS.fetch_add(t0.elapsed().as_nanos() as u64, Ordering::Relaxed);
     }
 
     pub fn forward(&self, x: &[f32], n: usize, y: &mut [f32]) {

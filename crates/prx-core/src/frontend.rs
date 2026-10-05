@@ -127,34 +127,41 @@ impl Frontend {
         padded[pad..pad + x.len()].copy_from_slice(&x);
         // torch.stft pads the win_length window to n_fft symmetrically
         let woff = (c.n_fft - c.win_length) / 2;
-        let mut frame = self.fft.make_input_vec();
-        let mut spec = self.fft.make_output_vec();
-        let mut scratch = self.fft.make_scratch_vec();
-        let mut power = vec![0f32; n_bins];
+        // frames are independent: parallel over blocks of frames, each with its own FFT scratch
+        use rayon::prelude::*;
         let mut out = vec![0f32; n_frames * c.n_mels];
-        for t in 0..n_frames {
-            frame.iter_mut().for_each(|v| *v = 0.0);
-            let start = t * c.hop_length + woff;
-            for k in 0..c.win_length {
-                frame[woff + k] = padded[start + k] * self.window[k];
-            }
-            self.fft
-                .process_with_scratch(&mut frame, &mut spec, &mut scratch)
-                .expect("fft");
-            for (p, s) in power.iter_mut().zip(spec.iter()) {
-                let Complex { re, im } = *s;
-                *p = re * re + im * im;
-            }
-            let row = &mut out[t * c.n_mels..(t + 1) * c.n_mels];
-            for (m, o) in row.iter_mut().enumerate() {
-                let fb = &self.filterbank[m * n_bins..(m + 1) * n_bins];
-                let mut acc = 0f64;
-                for (w, p) in fb.iter().zip(&power) {
-                    acc += *w as f64 * *p as f64;
+        let (padded, window, fb, fft) = (&padded, &self.window, &self.filterbank, &self.fft);
+        let block = 64usize;
+        out.par_chunks_mut(block * c.n_mels)
+            .enumerate()
+            .for_each(|(bi, ob)| {
+                let mut frame = fft.make_input_vec();
+                let mut spec = fft.make_output_vec();
+                let mut scratch = fft.make_scratch_vec();
+                let mut power = vec![0f32; n_bins];
+                for (li, row) in ob.chunks_exact_mut(c.n_mels).enumerate() {
+                    let t = bi * block + li;
+                    frame.iter_mut().for_each(|v| *v = 0.0);
+                    let start = t * c.hop_length + woff;
+                    for k in 0..c.win_length {
+                        frame[woff + k] = padded[start + k] * window[k];
+                    }
+                    fft.process_with_scratch(&mut frame, &mut spec, &mut scratch)
+                        .expect("fft");
+                    for (p, s) in power.iter_mut().zip(spec.iter()) {
+                        let Complex { re, im } = *s;
+                        *p = re * re + im * im;
+                    }
+                    for (m, o) in row.iter_mut().enumerate() {
+                        let fbm = &fb[m * n_bins..(m + 1) * n_bins];
+                        let mut acc = 0f64;
+                        for (w, p) in fbm.iter().zip(&power) {
+                            acc += *w as f64 * *p as f64;
+                        }
+                        *o = (acc as f32 + LOG_ZERO_GUARD).ln();
+                    }
                 }
-                *o = (acc as f32 + LOG_ZERO_GUARD).ln();
-            }
-        }
+            });
         out
     }
 

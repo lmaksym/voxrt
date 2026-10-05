@@ -57,8 +57,8 @@ pub fn dot(a: &[f32], b: &[f32]) -> f32 {
     s
 }
 
-/// `y[n, out] = x[n, in] · W[out, in]^T + b[out]`. Parallel over output columns (rayon pool) when the work is
-/// large enough; single-threaded for tiny calls (decoder steps).
+/// `y[n, out] = x[n, in] · W[out, in]^T + b[out]`. Parallel (rayon) when the work is large enough; single-threaded for
+/// tiny calls. On aarch64 the inner product uses a 4 rows × 4 tokens NEON register tile.
 pub fn linear(
     x: &[f32],
     n: usize,
@@ -72,34 +72,105 @@ pub fn linear(
     debug_assert_eq!(x.len(), n * in_f);
     debug_assert_eq!(w.len(), out_f * in_f);
     debug_assert_eq!(y.len(), n * out_f);
-    let row = |xi: &[f32], yrow: &mut [f32], o0: usize| {
-        for (o, yo) in yrow.iter_mut().enumerate() {
-            let oo = o0 + o;
-            *yo = dot(xi, &w[oo * in_f..(oo + 1) * in_f]) + b.map_or(0.0, |b| b[oo]);
-        }
-    };
     if n == 1 {
         gemv(x, in_f, w, b, out_f, y);
         return;
     }
-    if n * out_f * in_f < 1 << 20 {
-        for (xi, yrow) in x.chunks_exact(in_f).zip(y.chunks_exact_mut(out_f)) {
-            row(xi, yrow, 0);
+    let small = n * out_f * in_f < 1 << 20;
+    // tiles of 4 tokens; each task owns 4 token rows of y (all output columns)
+    let tile = |xi: &[f32], yi: &mut [f32]| tile_f32(xi, xi.len() / in_f, in_f, w, b, out_f, yi);
+    if small || n < 8 {
+        for (xi, yi) in x.chunks(4 * in_f).zip(y.chunks_mut(4 * out_f)) {
+            tile(xi, yi);
         }
+    } else {
+        y.par_chunks_mut(4 * out_f)
+            .zip(x.par_chunks(4 * in_f))
+            .for_each(|(yi, xi)| tile(xi, yi));
+    }
+}
+
+/// `y[toks, out] = x[toks, in] · W[out, in]ᵀ (+ b)` for 1..=4 token rows: the f32 register tile (NEON on aarch64).
+pub fn tile_f32(
+    x: &[f32],
+    toks: usize,
+    in_f: usize,
+    w: &[f32],
+    b: Option<&[f32]>,
+    out_f: usize,
+    y: &mut [f32],
+) {
+    debug_assert!((1..=4).contains(&toks) && x.len() >= toks * in_f && y.len() >= toks * out_f);
+    #[cfg(target_arch = "aarch64")]
+    {
+        // SAFETY: NEON is baseline on aarch64; the tile reads whole 4-float groups then a scalar tail.
+        unsafe { tile_rows_neon(x, toks, in_f, w, b, out_f, y) };
         return;
     }
-    if n >= 8 {
-        y.par_chunks_mut(out_f)
-            .zip(x.par_chunks(in_f))
-            .for_each(|(yrow, xi)| row(xi, yrow, 0));
-    } else {
-        // few tokens: split the output columns instead
-        let cols = out_f.div_ceil(threads()).max(16);
-        for (xi, yrow) in x.chunks_exact(in_f).zip(y.chunks_exact_mut(out_f)) {
-            yrow.par_chunks_mut(cols)
-                .enumerate()
-                .for_each(|(ci, yc)| row(xi, yc, ci * cols));
+    #[allow(unreachable_code)]
+    for (ti, row) in x.chunks_exact(in_f).take(toks).enumerate() {
+        for o in 0..out_f {
+            y[ti * out_f + o] = dot(row, &w[o * in_f..(o + 1) * in_f]) + b.map_or(0.0, |b| b[o]);
         }
+    }
+}
+
+/// Up to 4 token rows × all outputs, 4 outputs at a time: 16 float32x4 accumulators, loads shared across the tile.
+#[cfg(target_arch = "aarch64")]
+#[allow(clippy::needless_range_loop)]
+unsafe fn tile_rows_neon(
+    x: &[f32],
+    toks: usize,
+    in_f: usize,
+    w: &[f32],
+    b: Option<&[f32]>,
+    out_f: usize,
+    y: &mut [f32],
+) {
+    use std::arch::aarch64::*;
+    let xp: [*const f32; 4] = std::array::from_fn(|c| x.as_ptr().add(c.min(toks - 1) * in_f));
+    let mut o = 0;
+    while o < out_f {
+        let rows = (out_f - o).min(4);
+        let wp: [*const f32; 4] =
+            std::array::from_fn(|r| w.as_ptr().add((o + r.min(rows - 1)) * in_f));
+        let z = vdupq_n_f32(0.0);
+        let mut acc = [[z; 4]; 4]; // [row][token]
+        let mut c = 0;
+        while c + 4 <= in_f {
+            let xv = [
+                vld1q_f32(xp[0].add(c)),
+                vld1q_f32(xp[1].add(c)),
+                vld1q_f32(xp[2].add(c)),
+                vld1q_f32(xp[3].add(c)),
+            ];
+            for r in 0..4 {
+                let wv = vld1q_f32(wp[r].add(c));
+                acc[r][0] = vfmaq_f32(acc[r][0], wv, xv[0]);
+                acc[r][1] = vfmaq_f32(acc[r][1], wv, xv[1]);
+                acc[r][2] = vfmaq_f32(acc[r][2], wv, xv[2]);
+                acc[r][3] = vfmaq_f32(acc[r][3], wv, xv[3]);
+            }
+            c += 4;
+        }
+        let mut tail = [[0f32; 4]; 4];
+        while c < in_f {
+            for r in 0..4 {
+                let wv = *wp[r].add(c);
+                for tk in 0..4 {
+                    tail[r][tk] += wv * *xp[tk].add(c);
+                }
+            }
+            c += 1;
+        }
+        for r in 0..rows {
+            let bias = b.map_or(0.0, |b| b[o + r]);
+            for tk in 0..toks {
+                *y.get_unchecked_mut(tk * out_f + o + r) =
+                    vaddvq_f32(acc[r][tk]) + tail[r][tk] + bias;
+            }
+        }
+        o += rows;
     }
 }
 
@@ -207,7 +278,19 @@ pub fn load_f16_bits(m: &ModelFile, name: &str, shape: &[usize]) -> Result<Vec<u
 }
 
 /// Single-token GEMV with f16 weights (half the memory traffic of f32). `w`: `[out, in]` half bits.
+/// Memory-bound per decoder step; splitting it across the pool costs more in dispatch than it saves (measured).
 pub fn gemv_f16(x: &[f32], in_f: usize, w: &[u16], b: Option<&[f32]>, out_f: usize, y: &mut [f32]) {
+    gemv_f16_part(x, in_f, w, b, out_f, y);
+}
+
+fn gemv_f16_part(
+    x: &[f32],
+    in_f: usize,
+    w: &[u16],
+    b: Option<&[f32]>,
+    out_f: usize,
+    y: &mut [f32],
+) {
     #[cfg(target_arch = "aarch64")]
     {
         unsafe { gemv_f16_neon(x, in_f, w, b, out_f, y) };
@@ -285,17 +368,61 @@ unsafe fn gemv_f16_neon(
     }
 }
 
-/// LayerNorm over the last dim, eps 1e-5 (nn.LayerNorm default), biased variance.
+/// Minimum work (elements × cost) for row-parallel helpers to use the pool; below it, dispatch dominates.
+pub const PAR_MIN_ELEMS: usize = 64 * 1024;
+
+/// Effective threshold (`PRX_PAR_MIN` overrides, for tuning).
+pub fn par_min_elems() -> usize {
+    static V: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
+    *V.get_or_init(|| {
+        std::env::var("PRX_PAR_MIN")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(PAR_MIN_ELEMS)
+    })
+}
+
+/// Apply `f` to each row of a `[n, d]` buffer: in parallel when `elements × cost` is large enough, else sequentially.
+/// `cost` ≈ operations per element relative to a LayerNorm (1 for norms/activations, 9 for the depthwise conv).
+pub fn par_rows_cost<F: Fn(usize, &mut [f32]) + Sync>(
+    buf: &mut [f32],
+    d: usize,
+    cost: usize,
+    f: F,
+) {
+    use rayon::prelude::*;
+    let n = buf.len() / d;
+    if n >= 4 && buf.len() * cost >= par_min_elems() {
+        buf.par_chunks_mut(d)
+            .enumerate()
+            .for_each(|(i, row)| f(i, row));
+    } else {
+        buf.chunks_mut(d).enumerate().for_each(|(i, row)| f(i, row));
+    }
+}
+
+/// `par_rows_cost` with cost 1.
+pub fn par_rows<F: Fn(usize, &mut [f32]) + Sync>(buf: &mut [f32], d: usize, f: F) {
+    par_rows_cost(buf, d, 1, f)
+}
+
+/// LayerNorm over the last dim, eps 1e-5 (nn.LayerNorm default), biased variance. Parallel over rows.
 pub fn layer_norm(x: &[f32], n: usize, d: usize, g: &[f32], b: &[f32], y: &mut [f32]) {
-    for i in 0..n {
+    debug_assert_eq!(x.len(), n * d);
+    par_rows(y, d, |i, yr| {
         let xi = &x[i * d..(i + 1) * d];
         let mean = xi.iter().sum::<f32>() / d as f32;
         let var = xi.iter().map(|v| (v - mean) * (v - mean)).sum::<f32>() / d as f32;
         let inv = 1.0 / (var + 1e-5).sqrt();
         for k in 0..d {
-            y[i * d + k] = (xi[k] - mean) * inv * g[k] + b[k];
+            yr[k] = (xi[k] - mean) * inv * g[k] + b[k];
         }
-    }
+    });
+}
+
+/// In-place SiLU over a `[n, d]` buffer, parallel over rows.
+pub fn silu_inplace(buf: &mut [f32], d: usize) {
+    par_rows(buf, d, |_, row| row.iter_mut().for_each(|v| *v = silu(*v)));
 }
 
 #[inline]

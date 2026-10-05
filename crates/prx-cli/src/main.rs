@@ -129,7 +129,7 @@ fn main() -> anyhow::Result<()> {
                     }
                 }
             }
-            eprintln!("{:?}/{:?} · load {load:.2}s · {:.2}s audio in {secs:.2}s ({:.1}× real time) · {} frames · {} tokens · {} segments", tr.encoder.precision, prx_core::kernels::kernel(), a.samples.len() as f32 / 16000.0, a.samples.len() as f32 / 16000.0 / secs, r.n_frames, r.emissions.len(), r.segments.len());
+            eprintln!("{:?}/{:?} · load {load:.2}s · {:.2}s audio in {secs:.3}s ({:.1}× real time) · {} frames · {} tokens · {} segments", tr.encoder.precision, prx_core::kernels::kernel(), a.samples.len() as f32 / 16000.0, a.samples.len() as f32 / 16000.0 / secs, r.n_frames, r.emissions.len(), r.segments.len());
         }
         Some("batch") => {
             let (manifest, out) = (

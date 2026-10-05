@@ -1,6 +1,6 @@
 //! Kernel exactness: SIMD == scalar on random tiles; quantised path ≈ f32 path (PLAN 3.4 / 3.7).
 use prx_core::kernels::{detect, gemm, gemm_scalar, Kernel};
-use prx_core::packed::{QuantAct, TernaryMatrix};
+use prx_core::packed::{Layout, QuantAct, TernaryMatrix};
 use prx_core::tensor::linear;
 use prx_core::trits::pack_row;
 
@@ -48,6 +48,42 @@ fn simd_equals_scalar_exactly() {
             let mut y = vec![0f32; n * out];
             gemm(&w, &qa, &mut y, None);
             assert_eq!(y, y_ref, "out={out} inp={inp} n={n} kernel={:?}", detect());
+        }
+    }
+}
+
+#[test]
+fn i8mm_equals_scalar_exactly() {
+    if detect() != Kernel::NeonI8mm {
+        eprintln!("no i8mm on this machine; skipped");
+        return;
+    }
+    let mut seed = 99u64;
+    for &(out, inp) in &[(8usize, 128usize), (12, 256), (64, 1024), (132, 4096)] {
+        let (q, s16, _) = random_matrix(out, inp, &mut seed);
+        let w_rows = TernaryMatrix::from_packed_layout(&q, &s16, out, inp, 128, Layout::Rows);
+        let w_pairs = TernaryMatrix::from_packed_layout(&q, &s16, out, inp, 128, Layout::Pairs);
+        for r in 0..out {
+            for k in 0..inp {
+                assert_eq!(w_rows.get(r, k), w_pairs.get(r, k));
+            }
+        }
+        for &n in &[1usize, 2, 3, 4, 5, 6, 7, 17] {
+            let x: Vec<f32> = (0..n * inp)
+                .map(|_| (lcg(&mut seed) % 2001) as f32 / 100.0 - 10.0)
+                .collect();
+            let qa = QuantAct::quantize(&x, n, inp, 128);
+            let qp = QuantAct::quantize_layout(&x, n, inp, 128, Layout::Pairs);
+            for tk in 0..n {
+                for k in 0..inp {
+                    assert_eq!(qa.get(tk, k), qp.get(tk, k));
+                }
+            }
+            let mut y_ref = vec![0f32; n * out];
+            gemm_scalar(&w_rows, &qa, &mut y_ref, 0, out);
+            let mut y = vec![0f32; n * out];
+            gemm(&w_pairs, &qp, &mut y, None);
+            assert_eq!(y, y_ref, "i8mm out={out} inp={inp} n={n}");
         }
     }
 }
