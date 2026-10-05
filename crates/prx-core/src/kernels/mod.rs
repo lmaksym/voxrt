@@ -7,6 +7,28 @@ use crate::tensor::threads;
 #[cfg(target_arch = "aarch64")]
 pub mod neon;
 
+/// What the kernel does at each output store. Applied identically by every kernel, so results stay bit-identical.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Epilogue {
+    /// `y = v`
+    Store,
+    /// `y = silu(v)`
+    Silu,
+    /// `y = y + s · v` (residual add into a pre-filled buffer)
+    AddScaled(f32),
+}
+
+impl Epilogue {
+    #[inline(always)]
+    pub fn apply(self, old: f32, v: f32) -> f32 {
+        match self {
+            Epilogue::Store => v,
+            Epilogue::Silu => crate::tensor::silu(v),
+            Epilogue::AddScaled(s) => s.mul_add(v, old),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Kernel {
     Scalar,
@@ -62,7 +84,14 @@ pub fn kernel() -> Kernel {
 
 /// Scalar reference: rows `[r0, r1)` of `w`, all tokens of `x`, writes `y[t, o]` (y is the full `[n, out]` buffer).
 #[allow(clippy::needless_range_loop)]
-pub fn gemm_scalar(w: &TernaryMatrix, x: &QuantAct, y: &mut [f32], r0: usize, r1: usize) {
+pub fn gemm_scalar(
+    w: &TernaryMatrix,
+    x: &QuantAct,
+    y: &mut [f32],
+    r0: usize,
+    r1: usize,
+    ep: Epilogue,
+) {
     let (inp, g) = (w.inp, w.group);
     let ng = inp / g;
     for o in r0..r1 {
@@ -76,25 +105,39 @@ pub fn gemm_scalar(w: &TernaryMatrix, x: &QuantAct, y: &mut [f32], r0: usize, r1
                 // same float association and FMA as the SIMD kernels: acc = fma(sum, s_x · s_w, acc)
                 acc = (s as f32).mul_add(x.scales[t * ng + gi] * w.scales[o * ng + gi], acc);
             }
-            y[t * w.out + o] = acc;
+            let slot = &mut y[t * w.out + o];
+            *slot = ep.apply(*slot, acc);
         }
     }
 }
 
-fn gemm_rows(k: Kernel, w: &TernaryMatrix, x: &QuantAct, y: &mut [f32], r0: usize, r1: usize) {
+fn gemm_rows(
+    k: Kernel,
+    w: &TernaryMatrix,
+    x: &QuantAct,
+    y: &mut [f32],
+    r0: usize,
+    r1: usize,
+    ep: Epilogue,
+) {
     match k {
-        Kernel::Scalar => gemm_scalar(w, x, y, r0, r1),
+        Kernel::Scalar => gemm_scalar(w, x, y, r0, r1, ep),
         #[cfg(target_arch = "aarch64")]
-        Kernel::NeonDotprod => unsafe { neon::gemm_dotprod(w, x, y, r0, r1) },
+        Kernel::NeonDotprod => unsafe { neon::gemm_dotprod(w, x, y, r0, r1, ep) },
         #[cfg(target_arch = "aarch64")]
-        Kernel::NeonI8mm => unsafe { neon::gemm_i8mm(w, x, y, r0, r1) },
+        Kernel::NeonI8mm => unsafe { neon::gemm_i8mm(w, x, y, r0, r1, ep) },
         #[cfg(not(target_arch = "aarch64"))]
-        Kernel::NeonDotprod | Kernel::NeonI8mm => gemm_scalar(w, x, y, r0, r1),
+        Kernel::NeonDotprod | Kernel::NeonI8mm => gemm_scalar(w, x, y, r0, r1, ep),
     }
 }
 
 /// `y[n, out]` = quantised `x` × `w`ᵀ, parallel over output-row blocks (rayon pool). `bias` optional.
 pub fn gemm(w: &TernaryMatrix, x: &QuantAct, y: &mut [f32], bias: Option<&[f32]>) {
+    gemm_ep(w, x, y, bias, Epilogue::Store)
+}
+
+/// `gemm` with an epilogue applied at every store (SiLU, or residual add into `y`).
+pub fn gemm_ep(w: &TernaryMatrix, x: &QuantAct, y: &mut [f32], bias: Option<&[f32]>, ep: Epilogue) {
     use rayon::prelude::*;
     debug_assert_eq!(x.inp, w.inp);
     debug_assert_eq!(x.group, w.group);
@@ -126,7 +169,7 @@ pub fn gemm(w: &TernaryMatrix, x: &QuantAct, y: &mut [f32], bias: Option<&[f32]>
         let r1 = (r0 + chunk).min(w.out);
         // SAFETY: each block writes only columns [r0, r1) of every row of y; blocks are disjoint.
         let y = unsafe { std::slice::from_raw_parts_mut(yp as *mut f32, len) };
-        gemm_rows(k, w, x, y, r0, r1);
+        gemm_rows(k, w, x, y, r0, r1, ep);
     });
     if let Some(b) = bias {
         for t in 0..x.n {

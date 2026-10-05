@@ -1,5 +1,5 @@
 //! Kernel exactness: SIMD == scalar on random tiles; quantised path ≈ f32 path (PLAN 3.4 / 3.7).
-use prx_core::kernels::{detect, gemm, gemm_scalar, Kernel};
+use prx_core::kernels::{detect, gemm, gemm_ep, gemm_scalar, Epilogue, Kernel};
 use prx_core::packed::{Layout, QuantAct, TernaryMatrix};
 use prx_core::tensor::linear;
 use prx_core::trits::pack_row;
@@ -44,7 +44,7 @@ fn simd_equals_scalar_exactly() {
                 .collect();
             let qa = QuantAct::quantize(&x, n, inp, 128);
             let mut y_ref = vec![0f32; n * out];
-            gemm_scalar(&w, &qa, &mut y_ref, 0, out);
+            gemm_scalar(&w, &qa, &mut y_ref, 0, out, Epilogue::Store);
             let mut y = vec![0f32; n * out];
             gemm(&w, &qa, &mut y, None);
             assert_eq!(y, y_ref, "out={out} inp={inp} n={n} kernel={:?}", detect());
@@ -80,11 +80,34 @@ fn i8mm_equals_scalar_exactly() {
                 }
             }
             let mut y_ref = vec![0f32; n * out];
-            gemm_scalar(&w_rows, &qa, &mut y_ref, 0, out);
+            gemm_scalar(&w_rows, &qa, &mut y_ref, 0, out, Epilogue::Store);
             let mut y = vec![0f32; n * out];
             gemm(&w_pairs, &qp, &mut y, None);
             assert_eq!(y, y_ref, "i8mm out={out} inp={inp} n={n}");
         }
+    }
+}
+
+#[test]
+fn epilogues_are_identical_across_kernels() {
+    let mut seed = 5u64;
+    let (out, inp, n) = (64usize, 1024usize, 13usize);
+    let (q, s16, _) = random_matrix(out, inp, &mut seed);
+    let layout = detect().layout();
+    let w_rows = TernaryMatrix::from_packed_layout(&q, &s16, out, inp, 128, Layout::Rows);
+    let w = TernaryMatrix::from_packed_layout(&q, &s16, out, inp, 128, layout);
+    let x: Vec<f32> = (0..n * inp)
+        .map(|_| (lcg(&mut seed) % 2001) as f32 / 100.0 - 10.0)
+        .collect();
+    let qa = QuantAct::quantize(&x, n, inp, 128);
+    let qk = QuantAct::quantize_layout(&x, n, inp, 128, layout);
+    let base: Vec<f32> = (0..n * out).map(|i| (i % 7) as f32 - 3.0).collect();
+    for ep in [Epilogue::Store, Epilogue::Silu, Epilogue::AddScaled(0.5)] {
+        let mut y_ref = base.clone();
+        gemm_scalar(&w_rows, &qa, &mut y_ref, 0, out, ep);
+        let mut y = base.clone();
+        gemm_ep(&w, &qk, &mut y, None, ep);
+        assert_eq!(y, y_ref, "{ep:?} on {:?}", detect());
     }
 }
 

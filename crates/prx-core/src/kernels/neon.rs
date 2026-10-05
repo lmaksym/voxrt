@@ -4,6 +4,7 @@
 use std::arch::aarch64::*;
 use std::arch::asm;
 
+use super::Epilogue;
 use crate::packed::{QuantAct, TernaryMatrix};
 
 /// `acc += dot4(a, b)` per 32-bit lane (ARMv8.2 `sdot`). Inline asm because `vdotq_s32` is unstable on stable Rust.
@@ -26,6 +27,7 @@ unsafe fn tile_4x4(
     g: usize,
     yp: [*mut f32; 4],
     out: usize,
+    ep: Epilogue,
 ) {
     let chunks = g / 16;
     let mut acc0 = vdupq_n_f32(0.0);
@@ -83,7 +85,8 @@ unsafe fn tile_4x4(
         let mut tmp = [0f32; 4];
         vst1q_f32(tmp.as_mut_ptr(), accs[r]);
         for c in 0..4 {
-            *yp[r].add(c * out) = tmp[c];
+            let p = yp[r].add(c * out);
+            *p = ep.apply(*p, tmp[c]);
         }
     }
 }
@@ -98,6 +101,7 @@ unsafe fn tile_edge(
     rows: usize,
     t: usize,
     toks: usize,
+    ep: Epilogue,
 ) {
     let (inp, g, out) = (w.inp, w.group, w.out);
     let ng = inp / g;
@@ -133,7 +137,8 @@ unsafe fn tile_edge(
     }
     for r in 0..rows {
         for c in 0..toks {
-            *y.get_unchecked_mut((t + c) * out + o + r) = acc[r][c];
+            let p = y.get_unchecked_mut((t + c) * out + o + r);
+            *p = ep.apply(*p, acc[r][c]);
         }
     }
 }
@@ -141,7 +146,14 @@ unsafe fn tile_edge(
 /// # Safety
 /// Caller must have verified `dotprod` support (see `kernels::detect`).
 #[target_feature(enable = "neon,dotprod")]
-pub unsafe fn gemm_dotprod(w: &TernaryMatrix, x: &QuantAct, y: &mut [f32], r0: usize, r1: usize) {
+pub unsafe fn gemm_dotprod(
+    w: &TernaryMatrix,
+    x: &QuantAct,
+    y: &mut [f32],
+    r0: usize,
+    r1: usize,
+    ep: Epilogue,
+) {
     let (inp, g, out, n) = (w.inp, w.group, w.out, x.n);
     let _ = n;
     let ng = inp / g;
@@ -187,9 +199,10 @@ pub unsafe fn gemm_dotprod(w: &TernaryMatrix, x: &QuantAct, y: &mut [f32], r0: u
                     g,
                     yp,
                     out,
+                    ep,
                 );
             } else {
-                tile_edge(w, x, y, o, rows, t, toks);
+                tile_edge(w, x, y, o, rows, t, toks, ep);
             }
             t += toks;
         }
@@ -219,6 +232,7 @@ unsafe fn gemm_i8mm_4x4(
     r1: usize,
     t0: usize,
     t1: usize,
+    ep: Epilogue,
 ) {
     let (inp, g, out, n, n_pad) = (w.inp, w.group, w.out, t1, x.n_pad);
     let ng = inp / g;
@@ -289,7 +303,8 @@ unsafe fn gemm_i8mm_4x4(
                     for (l, val) in v.iter().enumerate() {
                         let (rr, tt) = (2 * rp + l / 2, 2 * tp + l % 2);
                         if rr < rows && tt < toks {
-                            *y.get_unchecked_mut((t + tt) * out + o + rr) = *val;
+                            let p = y.get_unchecked_mut((t + tt) * out + o + rr);
+                            *p = ep.apply(*p, *val);
                         }
                     }
                 }
@@ -306,7 +321,14 @@ unsafe fn gemm_i8mm_4x4(
 /// # Safety
 /// Caller must have verified `i8mm` support and `w.layout == Layout::Pairs`.
 #[target_feature(enable = "neon,i8mm")]
-pub unsafe fn gemm_i8mm(w: &TernaryMatrix, x: &QuantAct, y: &mut [f32], r0: usize, r1: usize) {
+pub unsafe fn gemm_i8mm(
+    w: &TernaryMatrix,
+    x: &QuantAct,
+    y: &mut [f32],
+    r0: usize,
+    r1: usize,
+    ep: Epilogue,
+) {
     let (inp, g, out, n, n_pad) = (w.inp, w.group, w.out, x.n, x.n_pad);
     let ng = inp / g;
     let slabs = inp / 8;
@@ -375,8 +397,9 @@ pub unsafe fn gemm_i8mm(w: &TernaryMatrix, x: &QuantAct, y: &mut [f32], r0: usiz
                         let mut v = [0f32; 4];
                         vst1q_f32(v.as_mut_ptr(), f[rp][tp]);
                         for (l, val) in v.iter().enumerate() {
-                            *y.get_unchecked_mut((t + 2 * tp + l % 2) * out + o + 2 * rp + l / 2) =
-                                *val;
+                            let p = y
+                                .get_unchecked_mut((t + 2 * tp + l % 2) * out + o + 2 * rp + l / 2);
+                            *p = ep.apply(*p, *val);
                         }
                     }
                 }
@@ -387,9 +410,9 @@ pub unsafe fn gemm_i8mm(w: &TernaryMatrix, x: &QuantAct, y: &mut [f32], r0: usiz
         tc = tc_end;
     }
     if n8 < n {
-        gemm_i8mm_4x4(w, x, y, r0, r8, n8, n);
+        gemm_i8mm_4x4(w, x, y, r0, r8, n8, n, ep);
     }
     if r8 < r1 {
-        gemm_i8mm_4x4(w, x, y, r8, r1, 0, n);
+        gemm_i8mm_4x4(w, x, y, r8, r1, 0, n, ep);
     }
 }

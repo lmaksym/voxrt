@@ -111,115 +111,102 @@ impl QuantAct {
 
     /// Symmetric int8, absmax/127 per (token, group); round half to even like `torch.round`.
     pub fn quantize_layout(x: &[f32], n: usize, inp: usize, group: usize, layout: Layout) -> Self {
-        use rayon::prelude::*;
         debug_assert_eq!(x.len(), n * inp);
+        Self::from_rows(n, inp, group, layout, |t, row| {
+            row.copy_from_slice(&x[t * inp..(t + 1) * inp])
+        })
+    }
+
+    /// Build from a row producer `fill(t, row)` (e.g. a fused LayerNorm): each token's f32 row is produced into a
+    /// scratch buffer and quantised straight into `layout`, parallel over token pairs when the work is large.
+    pub fn from_rows<F: Fn(usize, &mut [f32]) + Sync>(
+        n: usize,
+        inp: usize,
+        group: usize,
+        layout: Layout,
+        fill: F,
+    ) -> Self {
+        use rayon::prelude::*;
         let ng = inp / group;
         let n_pad = n.div_ceil(8) * 8;
         let mut q = vec![0i8; n_pad * inp];
-        let mut scales = vec![0f32; n * ng];
+        let mut scales = vec![0f32; n_pad * ng];
         let slabs = inp / 8;
-        // destination of token t, column k
-        let dst_index = move |t: usize, k: usize| match layout {
-            Layout::Rows => t * inp + k,
-            Layout::Pairs => ((t / 2) * slabs + k / 8) * 16 + (t % 2) * 8 + k % 8,
+        // quantise one f32 row into `dst` (a token's row for Rows, or the pair block for Pairs with `half`)
+        let quant_into = |row: &[f32], sc: &mut [f32], write: &mut dyn FnMut(usize, i8)| {
+            for g in 0..ng {
+                let sg = &row[g * group..(g + 1) * group];
+                let amax = sg.iter().fold(0f32, |m, v| m.max(v.abs()));
+                let s = if amax == 0.0 { 1.0 } else { amax / 127.0 };
+                sc[g] = s;
+                let inv = 1.0 / s;
+                for (c, v) in sg.iter().enumerate() {
+                    write(
+                        g * group + c,
+                        (v * inv).round_ties_even().clamp(-127.0, 127.0) as i8,
+                    );
+                }
+            }
         };
+        let parallel = n * inp >= crate::tensor::par_min_elems();
         match layout {
             Layout::Rows => {
-                if n * inp >= crate::tensor::par_min_elems() {
+                let work = |t: usize, dq: &mut [i8], ds: &mut [f32], tmp: &mut [f32]| {
+                    fill(t, tmp);
+                    quant_into(tmp, ds, &mut |k, v| dq[k] = v);
+                };
+                if parallel {
                     q.par_chunks_mut(inp)
-                        .take(n)
                         .zip(scales.par_chunks_mut(ng))
+                        .take(n)
                         .enumerate()
                         .for_each(|(t, (dq, ds))| {
-                            // dq is this token's own row: index within the row
-                            let row_dst = dq;
-                            let src = &x[t * inp..(t + 1) * inp];
-                            for g in 0..ng {
-                                let sg = &src[g * group..(g + 1) * group];
-                                let amax = sg.iter().fold(0f32, |m, v| m.max(v.abs()));
-                                let sc = if amax == 0.0 { 1.0 } else { amax / 127.0 };
-                                ds[g] = sc;
-                                let inv = 1.0 / sc;
-                                for (c, v) in sg.iter().enumerate() {
-                                    row_dst[g * group + c] =
-                                        (v * inv).round_ties_even().clamp(-127.0, 127.0) as i8;
-                                }
-                            }
+                            let mut tmp = vec![0f32; inp];
+                            work(t, dq, ds, &mut tmp);
                         });
                 } else {
+                    let mut tmp = vec![0f32; inp];
                     for t in 0..n {
-                        let (dq, ds) = (
+                        work(
+                            t,
                             &mut q[t * inp..(t + 1) * inp],
                             &mut scales[t * ng..(t + 1) * ng],
+                            &mut tmp,
                         );
-                        let src = &x[t * inp..(t + 1) * inp];
-                        for g in 0..ng {
-                            let sg = &src[g * group..(g + 1) * group];
-                            let amax = sg.iter().fold(0f32, |m, v| m.max(v.abs()));
-                            let sc = if amax == 0.0 { 1.0 } else { amax / 127.0 };
-                            ds[g] = sc;
-                            let inv = 1.0 / sc;
-                            for (c, v) in sg.iter().enumerate() {
-                                dq[g * group + c] =
-                                    (v * inv).round_ties_even().clamp(-127.0, 127.0) as i8;
-                            }
-                        }
                     }
                 }
             }
             Layout::Pairs => {
-                // a token pair owns one contiguous block of slabs*16 bytes → parallel over pairs
                 let pair_len = slabs * 16;
-                // simple, fast version: quantise rows into a scratch row, then scatter into the pair block
-                if n * inp >= crate::tensor::par_min_elems() {
-                    let n_pairs = n_pad / 2;
-                    let mut sc_pairs = vec![0f32; n_pairs * 2 * ng];
-                    q.par_chunks_mut(pair_len)
-                        .zip(sc_pairs.par_chunks_mut(2 * ng))
-                        .enumerate()
-                        .for_each(|(tp, (dst, scp))| {
-                            let mut tmp = vec![0i8; inp];
-                            for half in 0..2 {
-                                let t = 2 * tp + half;
-                                if t >= n {
-                                    break;
-                                }
-                                let src = &x[t * inp..(t + 1) * inp];
-                                for g in 0..ng {
-                                    let sg = &src[g * group..(g + 1) * group];
-                                    let amax = sg.iter().fold(0f32, |m, v| m.max(v.abs()));
-                                    let sc = if amax == 0.0 { 1.0 } else { amax / 127.0 };
-                                    scp[half * ng + g] = sc;
-                                    let inv = 1.0 / sc;
-                                    for (c, v) in sg.iter().enumerate() {
-                                        tmp[g * group + c] =
-                                            (v * inv).round_ties_even().clamp(-127.0, 127.0) as i8;
-                                    }
-                                }
-                                for sl in 0..slabs {
-                                    dst[sl * 16 + half * 8..sl * 16 + half * 8 + 8]
-                                        .copy_from_slice(&tmp[sl * 8..sl * 8 + 8]);
-                                }
-                            }
-                        });
-                    for t in 0..n {
-                        scales[t * ng..(t + 1) * ng]
-                            .copy_from_slice(&sc_pairs[t * ng..(t + 1) * ng]);
-                    }
-                } else {
-                    for t in 0..n {
-                        let src = &x[t * inp..(t + 1) * inp];
-                        for g in 0..ng {
-                            let sg = &src[g * group..(g + 1) * group];
-                            let amax = sg.iter().fold(0f32, |m, v| m.max(v.abs()));
-                            let sc = if amax == 0.0 { 1.0 } else { amax / 127.0 };
-                            scales[t * ng + g] = sc;
-                            let inv = 1.0 / sc;
-                            for (c, v) in sg.iter().enumerate() {
-                                q[dst_index(t, g * group + c)] =
-                                    (v * inv).round_ties_even().clamp(-127.0, 127.0) as i8;
-                            }
+                let work = |tp: usize, dst: &mut [i8], sc2: &mut [f32], tmp: &mut [f32]| {
+                    for half in 0..2 {
+                        let t = 2 * tp + half;
+                        if t >= n {
+                            break;
                         }
+                        fill(t, tmp);
+                        quant_into(tmp, &mut sc2[half * ng..(half + 1) * ng], &mut |k, v| {
+                            dst[(k / 8) * 16 + half * 8 + k % 8] = v
+                        });
+                    }
+                };
+                if parallel {
+                    q.par_chunks_mut(pair_len)
+                        .zip(scales.par_chunks_mut(2 * ng))
+                        .enumerate()
+                        .for_each(|(tp, (dst, sc2))| {
+                            let mut tmp = vec![0f32; inp];
+                            work(tp, dst, sc2, &mut tmp);
+                        });
+                } else {
+                    let mut tmp = vec![0f32; inp];
+                    for tp in 0..n_pad / 2 {
+                        work(
+                            tp,
+                            &mut q[tp * pair_len..(tp + 1) * pair_len],
+                            &mut scales[tp * 2 * ng..(tp + 1) * 2 * ng],
+                            &mut tmp,
+                        );
                     }
                 }
             }
@@ -230,6 +217,7 @@ impl QuantAct {
                 scales_t[g * n_pad + t] = scales[t * ng + g];
             }
         }
+        scales.truncate(n * ng);
         Self {
             n,
             inp,
