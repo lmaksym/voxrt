@@ -1,0 +1,19 @@
+[package]
+name = "prx-core"
+description = "Open Rust inference engine for moondream/parakeet-redux (ternary Parakeet-TDT)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+half = { workspace = true }
+memmap2 = { workspace = true }
+safetensors = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+realfft = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+anyhow = { workspace = true }

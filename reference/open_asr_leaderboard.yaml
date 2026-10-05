@@ -1,0 +1,96 @@
+# Self-reported. Word error rate in percent, scored with the Open ASR Leaderboard's own pipeline (its normalizers as of
+# September 2026) on the leaderboard's test sets, through Photon (https://moondream.ai/photon). Details in the model
+# card. The leaderboard's TED-LIUM split is no longer distributed; tedlium_wer scores the same eleven TED-LIUM 3 test
+# talks in full (the card's long-form set), and mean_wer averages all eight sets. The card's 'Open ASR' figure (6.55)
+# is the mean of the other seven.
+
+- dataset:
+    id: hf-audio/open-asr-leaderboard
+    task_id: mean_wer
+  value: 6.05
+  date: '2026-09-21'
+  source:
+    url: https://huggingface.co/moondream/parakeet-redux
+    name: moondream
+    user: moondream
+
+- dataset:
+    id: hf-audio/open-asr-leaderboard
+    task_id: ami_wer
+  value: 10.80
+  date: '2026-09-21'
+  source:
+    url: https://huggingface.co/moondream/parakeet-redux
+    name: moondream
+    user: moondream
+
+- dataset:
+    id: hf-audio/open-asr-leaderboard
+    task_id: earnings22_wer
+  value: 9.95
+  date: '2026-09-21'
+  source:
+    url: https://huggingface.co/moondream/parakeet-redux
+    name: moondream
+    user: moondream
+
+- dataset:
+    id: hf-audio/open-asr-leaderboard
+    task_id: gigaspeech_wer
+  value: 8.73
+  date: '2026-09-21'
+  source:
+    url: https://huggingface.co/moondream/parakeet-redux
+    name: moondream
+    user: moondream
+
+- dataset:
+    id: hf-audio/open-asr-leaderboard
+    task_id: librispeech_clean_wer
+  value: 1.96
+  date: '2026-09-21'
+  source:
+    url: https://huggingface.co/moondream/parakeet-redux
+    name: moondream
+    user: moondream
+
+- dataset:
+    id: hf-audio/open-asr-leaderboard
+    task_id: librispeech_other_wer
+  value: 4.34
+  date: '2026-09-21'
+  source:
+    url: https://huggingface.co/moondream/parakeet-redux
+    name: moondream
+    user: moondream
+
+- dataset:
+    id: hf-audio/open-asr-leaderboard
+    task_id: spgispeech_wer
+  value: 4.01
+  date: '2026-09-21'
+  source:
+    url: https://huggingface.co/moondream/parakeet-redux
+    name: moondream
+    user: moondream
+
+- dataset:
+    id: hf-audio/open-asr-leaderboard
+    task_id: tedlium_wer
+  # the eleven TED-LIUM 3 test talks scored whole; see the note above
+  value: 2.51
+  date: '2026-09-21'
+  source:
+    url: https://huggingface.co/moondream/parakeet-redux
+    name: moondream
+    user: moondream
+
+- dataset:
+    id: hf-audio/open-asr-leaderboard
+    task_id: voxpopuli_wer
+  value: 6.07
+  date: '2026-09-21'
+  source:
+    url: https://huggingface.co/moondream/parakeet-redux
+    name: moondream
+    user: moondream

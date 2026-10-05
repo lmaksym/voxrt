@@ -1,0 +1,20 @@
+{
+ "encoder_layers_0_self_attn_q_proj": {
+  "rows": 4,
+  "in_features": 1024,
+  "group_size": 128,
+  "zero_fraction_rows": 0.243896484375
+ },
+ "encoder_layers_0_feed_forward1_linear2": {
+  "rows": 2,
+  "in_features": 4096,
+  "group_size": 128,
+  "zero_fraction_rows": 0.5260009765625
+ },
+ "encoder_layers_7_conv_pointwise_conv1": {
+  "rows": 3,
+  "in_features": 1024,
+  "group_size": 128,
+  "zero_fraction_rows": 0.4280598958333333
+ }
+}

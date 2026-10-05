@@ -1,0 +1,27 @@
+# weights, data, generated tensors
+models/
+golden/*/
+data/
+*.safetensors
+*.nemo
+*.onnx
+*.npy
+*.wav
+*.flac
+
+# toolchains
+target/
+.venv/
+__pycache__/
+*.py[cod]
+.ruff_cache/
+
+# scratch
+runs/
+*.log
+
+# eval outputs: keep the .wer.txt summaries and small json, not the per-utterance dumps
+results/*.jsonl
+golden/*/
+golden/vad/
+*.egg-info/

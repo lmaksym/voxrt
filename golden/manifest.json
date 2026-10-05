@@ -1,0 +1,1005 @@
+{
+ "transformers": "5.18.0",
+ "torch": "2.14.1",
+ "platform": "macOS-26.6.2-arm64-arm-64bit",
+ "model_sha256": "78ec25733ee0d0c1586d1346fc86db9d0c2e436e3a8ab1d32a82d1bb8f848d21",
+ "dtype": "float32",
+ "device": "cpu",
+ "utterances": {
+  "5694-64025-0000": {
+   "audio": "data/librispeech/LibriSpeech/dev-clean/5694/64025/5694-64025-0000.flac",
+   "audio_sha256": "bd57c068c57954f67ae2e9a40d87d50996e7e820eb43fe4144134e7e7356a314",
+   "seconds": 1.67,
+   "ref_text": "SHILOH",
+   "hyp_text": "Shiloh",
+   "n_samples": 26720,
+   "n_feature_frames": 168,
+   "n_encoder_frames": 21,
+   "n_steps": 12,
+   "n_emissions": 3,
+   "shapes": {
+    "waveform": [
+     26720
+    ],
+    "preemph": [
+     26720
+    ],
+    "logmel": [
+     168,
+     128
+    ],
+    "features": [
+     168,
+     128
+    ],
+    "encoder_out": [
+     21,
+     1024
+    ],
+    "encoder_proj": [
+     21,
+     640
+    ],
+    "step_logits": [
+     12,
+     8198
+    ],
+    "step_h": [
+     12,
+     2,
+     640
+    ],
+    "step_c": [
+     12,
+     2,
+     640
+    ],
+    "step_t": [
+     12
+    ],
+    "step_token": [
+     12
+    ],
+    "step_dur": [
+     12
+    ],
+    "emissions": [
+     3,
+     3
+    ],
+    "subsampling_out": [
+     21,
+     1024
+    ],
+    "pos_emb": [
+     41,
+     1024
+    ],
+    "layer00_norm_ff1_out": [
+     21,
+     1024
+    ],
+    "layer00_ff1_out": [
+     21,
+     1024
+    ],
+    "layer00_norm_attn_out": [
+     21,
+     1024
+    ],
+    "layer00_attn_out": [
+     21,
+     1024
+    ],
+    "layer00_norm_conv_out": [
+     21,
+     1024
+    ],
+    "layer00_conv_out": [
+     21,
+     1024
+    ],
+    "layer00_ff2_out": [
+     21,
+     1024
+    ],
+    "layer00_norm_out_out": [
+     21,
+     1024
+    ],
+    "layer00_out": [
+     21,
+     1024
+    ],
+    "layer01_out": [
+     21,
+     1024
+    ],
+    "layer02_out": [
+     21,
+     1024
+    ],
+    "layer03_out": [
+     21,
+     1024
+    ],
+    "layer04_out": [
+     21,
+     1024
+    ],
+    "layer05_out": [
+     21,
+     1024
+    ],
+    "layer06_out": [
+     21,
+     1024
+    ],
+    "layer07_out": [
+     21,
+     1024
+    ],
+    "layer08_out": [
+     21,
+     1024
+    ],
+    "layer09_out": [
+     21,
+     1024
+    ],
+    "layer10_out": [
+     21,
+     1024
+    ],
+    "layer11_out": [
+     21,
+     1024
+    ],
+    "layer12_out": [
+     21,
+     1024
+    ],
+    "layer13_out": [
+     21,
+     1024
+    ],
+    "layer14_out": [
+     21,
+     1024
+    ],
+    "layer15_out": [
+     21,
+     1024
+    ],
+    "layer16_out": [
+     21,
+     1024
+    ],
+    "layer17_out": [
+     21,
+     1024
+    ],
+    "layer18_out": [
+     21,
+     1024
+    ],
+    "layer19_out": [
+     21,
+     1024
+    ],
+    "layer20_out": [
+     21,
+     1024
+    ],
+    "layer21_out": [
+     21,
+     1024
+    ],
+    "layer22_out": [
+     21,
+     1024
+    ],
+    "layer23_out": [
+     21,
+     1024
+    ]
+   }
+  },
+  "3081-166546-0059": {
+   "audio": "data/librispeech/LibriSpeech/dev-clean/3081/166546/3081-166546-0059.flac",
+   "audio_sha256": "bf97a63777b4d5a1b63ed206acecd58e07a8b656b935b3cdf7b896f94412f367",
+   "seconds": 5.92,
+   "ref_text": "I SUPPOSE SHE HAS BEEN CAREFULLY QUESTIONED VERY I SHOULD SAY",
+   "hyp_text": "I suppose she has been carefully questioned? Very, I should say.",
+   "n_samples": 94720,
+   "n_feature_frames": 593,
+   "n_encoder_frames": 74,
+   "n_steps": 40,
+   "n_emissions": 21,
+   "shapes": {
+    "waveform": [
+     94720
+    ],
+    "preemph": [
+     94720
+    ],
+    "logmel": [
+     593,
+     128
+    ],
+    "features": [
+     593,
+     128
+    ],
+    "encoder_out": [
+     74,
+     1024
+    ],
+    "encoder_proj": [
+     74,
+     640
+    ],
+    "step_logits": [
+     40,
+     8198
+    ],
+    "step_h": [
+     40,
+     2,
+     640
+    ],
+    "step_c": [
+     40,
+     2,
+     640
+    ],
+    "step_t": [
+     40
+    ],
+    "step_token": [
+     40
+    ],
+    "step_dur": [
+     40
+    ],
+    "emissions": [
+     21,
+     3
+    ],
+    "subsampling_out": [
+     75,
+     1024
+    ],
+    "pos_emb": [
+     149,
+     1024
+    ],
+    "layer00_norm_ff1_out": [
+     75,
+     1024
+    ],
+    "layer00_ff1_out": [
+     75,
+     1024
+    ],
+    "layer00_norm_attn_out": [
+     75,
+     1024
+    ],
+    "layer00_attn_out": [
+     75,
+     1024
+    ],
+    "layer00_norm_conv_out": [
+     75,
+     1024
+    ],
+    "layer00_conv_out": [
+     75,
+     1024
+    ],
+    "layer00_ff2_out": [
+     75,
+     1024
+    ],
+    "layer00_norm_out_out": [
+     75,
+     1024
+    ],
+    "layer00_out": [
+     75,
+     1024
+    ],
+    "layer01_out": [
+     75,
+     1024
+    ],
+    "layer02_out": [
+     75,
+     1024
+    ],
+    "layer03_out": [
+     75,
+     1024
+    ],
+    "layer04_out": [
+     75,
+     1024
+    ],
+    "layer05_out": [
+     75,
+     1024
+    ],
+    "layer06_out": [
+     75,
+     1024
+    ],
+    "layer07_out": [
+     75,
+     1024
+    ],
+    "layer08_out": [
+     75,
+     1024
+    ],
+    "layer09_out": [
+     75,
+     1024
+    ],
+    "layer10_out": [
+     75,
+     1024
+    ],
+    "layer11_out": [
+     75,
+     1024
+    ],
+    "layer12_out": [
+     75,
+     1024
+    ],
+    "layer13_out": [
+     75,
+     1024
+    ],
+    "layer14_out": [
+     75,
+     1024
+    ],
+    "layer15_out": [
+     75,
+     1024
+    ],
+    "layer16_out": [
+     75,
+     1024
+    ],
+    "layer17_out": [
+     75,
+     1024
+    ],
+    "layer18_out": [
+     75,
+     1024
+    ],
+    "layer19_out": [
+     75,
+     1024
+    ],
+    "layer20_out": [
+     75,
+     1024
+    ],
+    "layer21_out": [
+     75,
+     1024
+    ],
+    "layer22_out": [
+     75,
+     1024
+    ],
+    "layer23_out": [
+     75,
+     1024
+    ]
+   }
+  },
+  "2078-142845-0038": {
+   "audio": "data/librispeech/LibriSpeech/dev-clean/2078/142845/2078-142845-0038.flac",
+   "audio_sha256": "2b3a15a358f65268d80284d10cd258fbb8f53c96269d751d2b8259b1289b30dc",
+   "seconds": 4.52,
+   "ref_text": "FROM FIFTEEN TO TWENTY MINUTES WILL BE REQUIRED TO BAKE THEM NICELY",
+   "hyp_text": "From fifteen to twenty minutes will be required to bake them nicely.",
+   "n_samples": 72320,
+   "n_feature_frames": 453,
+   "n_encoder_frames": 57,
+   "n_steps": 36,
+   "n_emissions": 23,
+   "shapes": {
+    "waveform": [
+     72320
+    ],
+    "preemph": [
+     72320
+    ],
+    "logmel": [
+     453,
+     128
+    ],
+    "features": [
+     453,
+     128
+    ],
+    "encoder_out": [
+     57,
+     1024
+    ],
+    "encoder_proj": [
+     57,
+     640
+    ],
+    "step_logits": [
+     36,
+     8198
+    ],
+    "step_h": [
+     36,
+     2,
+     640
+    ],
+    "step_c": [
+     36,
+     2,
+     640
+    ],
+    "step_t": [
+     36
+    ],
+    "step_token": [
+     36
+    ],
+    "step_dur": [
+     36
+    ],
+    "emissions": [
+     23,
+     3
+    ],
+    "subsampling_out": [
+     57,
+     1024
+    ],
+    "pos_emb": [
+     113,
+     1024
+    ],
+    "layer00_norm_ff1_out": [
+     57,
+     1024
+    ],
+    "layer00_ff1_out": [
+     57,
+     1024
+    ],
+    "layer00_norm_attn_out": [
+     57,
+     1024
+    ],
+    "layer00_attn_out": [
+     57,
+     1024
+    ],
+    "layer00_norm_conv_out": [
+     57,
+     1024
+    ],
+    "layer00_conv_out": [
+     57,
+     1024
+    ],
+    "layer00_ff2_out": [
+     57,
+     1024
+    ],
+    "layer00_norm_out_out": [
+     57,
+     1024
+    ],
+    "layer00_out": [
+     57,
+     1024
+    ],
+    "layer01_out": [
+     57,
+     1024
+    ],
+    "layer02_out": [
+     57,
+     1024
+    ],
+    "layer03_out": [
+     57,
+     1024
+    ],
+    "layer04_out": [
+     57,
+     1024
+    ],
+    "layer05_out": [
+     57,
+     1024
+    ],
+    "layer06_out": [
+     57,
+     1024
+    ],
+    "layer07_out": [
+     57,
+     1024
+    ],
+    "layer08_out": [
+     57,
+     1024
+    ],
+    "layer09_out": [
+     57,
+     1024
+    ],
+    "layer10_out": [
+     57,
+     1024
+    ],
+    "layer11_out": [
+     57,
+     1024
+    ],
+    "layer12_out": [
+     57,
+     1024
+    ],
+    "layer13_out": [
+     57,
+     1024
+    ],
+    "layer14_out": [
+     57,
+     1024
+    ],
+    "layer15_out": [
+     57,
+     1024
+    ],
+    "layer16_out": [
+     57,
+     1024
+    ],
+    "layer17_out": [
+     57,
+     1024
+    ],
+    "layer18_out": [
+     57,
+     1024
+    ],
+    "layer19_out": [
+     57,
+     1024
+    ],
+    "layer20_out": [
+     57,
+     1024
+    ],
+    "layer21_out": [
+     57,
+     1024
+    ],
+    "layer22_out": [
+     57,
+     1024
+    ],
+    "layer23_out": [
+     57,
+     1024
+    ]
+   }
+  },
+  "1673-143396-0020": {
+   "audio": "data/librispeech/LibriSpeech/dev-clean/1673/143396/1673-143396-0020.flac",
+   "audio_sha256": "afb1e0ad5fded60951de15da8a7eaba244067b5931318cba12d99df748160da2",
+   "seconds": 15.02,
+   "ref_text": "UNDER THE TUITION OF THE ABBOT SERAPION HE APPLIED HIMSELF TO ECCLESIASTICAL STUDIES WITH SUCH INDEFATIGABLE ARDOR THAT IN THE COURSE OF ONE SLEEPLESS NIGHT HE HAS PERUSED THE FOUR GOSPELS THE CATHOLIC EPISTLES AND THE EPISTLE TO THE ROMANS",
+   "hyp_text": "Under the tuition of the abbot Serapian, he applied himself to ecclesiastical studies with such indefatigable ardour that in the course of one sleepless night he has perused the four Gospels, the Catholic Apistles, and the Epistle to the Romans.",
+   "n_samples": 240320,
+   "n_feature_frames": 1503,
+   "n_encoder_frames": 188,
+   "n_steps": 120,
+   "n_emissions": 90,
+   "shapes": {
+    "waveform": [
+     240320
+    ],
+    "preemph": [
+     240320
+    ],
+    "logmel": [
+     1503,
+     128
+    ],
+    "features": [
+     1503,
+     128
+    ],
+    "encoder_out": [
+     188,
+     1024
+    ],
+    "encoder_proj": [
+     188,
+     640
+    ],
+    "step_logits": [
+     120,
+     8198
+    ],
+    "step_h": [
+     120,
+     2,
+     640
+    ],
+    "step_c": [
+     120,
+     2,
+     640
+    ],
+    "step_t": [
+     120
+    ],
+    "step_token": [
+     120
+    ],
+    "step_dur": [
+     120
+    ],
+    "emissions": [
+     90,
+     3
+    ],
+    "subsampling_out": [
+     188,
+     1024
+    ],
+    "pos_emb": [
+     375,
+     1024
+    ],
+    "layer00_norm_ff1_out": [
+     188,
+     1024
+    ],
+    "layer00_ff1_out": [
+     188,
+     1024
+    ],
+    "layer00_norm_attn_out": [
+     188,
+     1024
+    ],
+    "layer00_attn_out": [
+     188,
+     1024
+    ],
+    "layer00_norm_conv_out": [
+     188,
+     1024
+    ],
+    "layer00_conv_out": [
+     188,
+     1024
+    ],
+    "layer00_ff2_out": [
+     188,
+     1024
+    ],
+    "layer00_norm_out_out": [
+     188,
+     1024
+    ],
+    "layer00_out": [
+     188,
+     1024
+    ],
+    "layer01_out": [
+     188,
+     1024
+    ],
+    "layer02_out": [
+     188,
+     1024
+    ],
+    "layer03_out": [
+     188,
+     1024
+    ],
+    "layer04_out": [
+     188,
+     1024
+    ],
+    "layer05_out": [
+     188,
+     1024
+    ],
+    "layer06_out": [
+     188,
+     1024
+    ],
+    "layer07_out": [
+     188,
+     1024
+    ],
+    "layer08_out": [
+     188,
+     1024
+    ],
+    "layer09_out": [
+     188,
+     1024
+    ],
+    "layer10_out": [
+     188,
+     1024
+    ],
+    "layer11_out": [
+     188,
+     1024
+    ],
+    "layer12_out": [
+     188,
+     1024
+    ],
+    "layer13_out": [
+     188,
+     1024
+    ],
+    "layer14_out": [
+     188,
+     1024
+    ],
+    "layer15_out": [
+     188,
+     1024
+    ],
+    "layer16_out": [
+     188,
+     1024
+    ],
+    "layer17_out": [
+     188,
+     1024
+    ],
+    "layer18_out": [
+     188,
+     1024
+    ],
+    "layer19_out": [
+     188,
+     1024
+    ],
+    "layer20_out": [
+     188,
+     1024
+    ],
+    "layer21_out": [
+     188,
+     1024
+    ],
+    "layer22_out": [
+     188,
+     1024
+    ],
+    "layer23_out": [
+     188,
+     1024
+    ]
+   }
+  },
+  "1919-142785-0007": {
+   "audio": "data/librispeech/LibriSpeech/dev-clean/1919/142785/1919-142785-0007.flac",
+   "audio_sha256": "b2a9353d71731003716250c8f15971c9cf4395ada2bfc96036735dab7f870d4f",
+   "seconds": 26.625,
+   "ref_text": "MODE CHOOSE THE GREENEST CUCUMBERS AND THOSE THAT ARE MOST FREE FROM SEEDS PUT THEM IN STRONG SALT AND WATER WITH A CABBAGE LEAF TO KEEP THEM DOWN TIE A PAPER OVER THEM AND PUT THEM IN A WARM PLACE TILL THEY ARE YELLOW THEN WASH THEM AND SET THEM OVER THE FIRE IN FRESH WATER WITH A VERY LITTLE SALT AND ANOTHER CABBAGE LEAF OVER THEM COVER VERY CLOSELY BUT TAKE CARE THEY DO NOT BOIL",
+   "hyp_text": "Mode. Choose the greenest cucumbers and those that are most free from seeds. Put them in strong salt and water, with a cabbage leaf, to keep them down. Tie a paper over them and put them in a warm place till they are yellow then wash them and set them over the fire in fresh water with a very little salt, and another cabbage leaf over them. Cover very closely, but take care they do not boil.",
+   "n_samples": 426000,
+   "n_feature_frames": 2663,
+   "n_encoder_frames": 333,
+   "n_steps": 172,
+   "n_emissions": 126,
+   "shapes": {
+    "waveform": [
+     426000
+    ],
+    "preemph": [
+     426000
+    ],
+    "logmel": [
+     2663,
+     128
+    ],
+    "features": [
+     2663,
+     128
+    ],
+    "encoder_out": [
+     333,
+     1024
+    ],
+    "encoder_proj": [
+     333,
+     640
+    ],
+    "step_logits": [
+     172,
+     8198
+    ],
+    "step_h": [
+     172,
+     2,
+     640
+    ],
+    "step_c": [
+     172,
+     2,
+     640
+    ],
+    "step_t": [
+     172
+    ],
+    "step_token": [
+     172
+    ],
+    "step_dur": [
+     172
+    ],
+    "emissions": [
+     126,
+     3
+    ],
+    "subsampling_out": [
+     333,
+     1024
+    ],
+    "pos_emb": [
+     665,
+     1024
+    ],
+    "layer00_norm_ff1_out": [
+     333,
+     1024
+    ],
+    "layer00_ff1_out": [
+     333,
+     1024
+    ],
+    "layer00_norm_attn_out": [
+     333,
+     1024
+    ],
+    "layer00_attn_out": [
+     333,
+     1024
+    ],
+    "layer00_norm_conv_out": [
+     333,
+     1024
+    ],
+    "layer00_conv_out": [
+     333,
+     1024
+    ],
+    "layer00_ff2_out": [
+     333,
+     1024
+    ],
+    "layer00_norm_out_out": [
+     333,
+     1024
+    ],
+    "layer00_out": [
+     333,
+     1024
+    ],
+    "layer01_out": [
+     333,
+     1024
+    ],
+    "layer02_out": [
+     333,
+     1024
+    ],
+    "layer03_out": [
+     333,
+     1024
+    ],
+    "layer04_out": [
+     333,
+     1024
+    ],
+    "layer05_out": [
+     333,
+     1024
+    ],
+    "layer06_out": [
+     333,
+     1024
+    ],
+    "layer07_out": [
+     333,
+     1024
+    ],
+    "layer08_out": [
+     333,
+     1024
+    ],
+    "layer09_out": [
+     333,
+     1024
+    ],
+    "layer10_out": [
+     333,
+     1024
+    ],
+    "layer11_out": [
+     333,
+     1024
+    ],
+    "layer12_out": [
+     333,
+     1024
+    ],
+    "layer13_out": [
+     333,
+     1024
+    ],
+    "layer14_out": [
+     333,
+     1024
+    ],
+    "layer15_out": [
+     333,
+     1024
+    ],
+    "layer16_out": [
+     333,
+     1024
+    ],
+    "layer17_out": [
+     333,
+     1024
+    ],
+    "layer18_out": [
+     333,
+     1024
+    ],
+    "layer19_out": [
+     333,
+     1024
+    ],
+    "layer20_out": [
+     333,
+     1024
+    ],
+    "layer21_out": [
+     333,
+     1024
+    ],
+    "layer22_out": [
+     333,
+     1024
+    ],
+    "layer23_out": [
+     333,
+     1024
+    ]
+   }
+  }
+ }
+}

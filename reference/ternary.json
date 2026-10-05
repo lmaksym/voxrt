@@ -1,0 +1,2417 @@
+{
+ "format": "thrush-ternary-v2",
+ "names": "hf",
+ "packing": {
+  "base": 3,
+  "code_offset": 1,
+  "elements_per_byte": 5,
+  "row_bytes": "ceil(in/5)",
+  "digit_order": "element i of a row is base-3 digit i%5 of byte i//5, least significant digit first; pad digits 0",
+  "row_major": true
+ },
+ "weight_rule": "w = scales[row, col // group_size] * (code - 1) with code in {0,1,2}",
+ "quant": {
+  "mode": "ternary",
+  "group_size": 128
+ },
+ "source": {
+  "teacher": "nvidia/parakeet-tdt-0.6b-v3"
+ },
+ "vad_head": {
+  "tensors": [
+   "vad_head.ctx.bias",
+   "vad_head.ctx.weight",
+   "vad_head.out.bias",
+   "vad_head.out.weight",
+   "vad_head.proj.bias",
+   "vad_head.proj.weight"
+  ],
+  "d_model": 1024,
+  "hidden": 128,
+  "kernel": 5,
+  "frame_seconds": 0.08,
+  "dtype": "float16",
+  "params": 213377
+ },
+ "quantized_modules": [
+  {
+   "name": "encoder.layers.0.feed_forward1.linear1",
+   "out_features": 4096,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.5044150352478027
+  },
+  {
+   "name": "encoder.layers.0.feed_forward1.linear2",
+   "out_features": 1024,
+   "in_features": 4096,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.5184123516082764
+  },
+  {
+   "name": "encoder.layers.0.self_attn.q_proj",
+   "out_features": 1024,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.15679550170898438
+  },
+  {
+   "name": "encoder.layers.0.self_attn.k_proj",
+   "out_features": 1024,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.46837711334228516
+  },
+  {
+   "name": "encoder.layers.0.self_attn.v_proj",
+   "out_features": 1024,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.7815647125244141
+  },
+  {
+   "name": "encoder.layers.0.self_attn.o_proj",
+   "out_features": 1024,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.7256069183349609
+  },
+  {
+   "name": "encoder.layers.0.self_attn.relative_k_proj",
+   "out_features": 1024,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.13124942779541016
+  },
+  {
+   "name": "encoder.layers.0.conv.pointwise_conv1",
+   "out_features": 2048,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": true,
+   "has_bias": false,
+   "zero_fraction": 0.49237823486328125
+  },
+  {
+   "name": "encoder.layers.0.conv.pointwise_conv2",
+   "out_features": 1024,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": true,
+   "has_bias": false,
+   "zero_fraction": 0.5364360809326172
+  },
+  {
+   "name": "encoder.layers.0.feed_forward2.linear1",
+   "out_features": 4096,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.5409379005432129
+  },
+  {
+   "name": "encoder.layers.0.feed_forward2.linear2",
+   "out_features": 1024,
+   "in_features": 4096,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.5457351207733154
+  },
+  {
+   "name": "encoder.layers.1.feed_forward1.linear1",
+   "out_features": 4096,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.5231430530548096
+  },
+  {
+   "name": "encoder.layers.1.feed_forward1.linear2",
+   "out_features": 1024,
+   "in_features": 4096,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.4283597469329834
+  },
+  {
+   "name": "encoder.layers.1.self_attn.q_proj",
+   "out_features": 1024,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.34552860260009766
+  },
+  {
+   "name": "encoder.layers.1.self_attn.k_proj",
+   "out_features": 1024,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.5812540054321289
+  },
+  {
+   "name": "encoder.layers.1.self_attn.v_proj",
+   "out_features": 1024,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.41185569763183594
+  },
+  {
+   "name": "encoder.layers.1.self_attn.o_proj",
+   "out_features": 1024,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.3538980484008789
+  },
+  {
+   "name": "encoder.layers.1.self_attn.relative_k_proj",
+   "out_features": 1024,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.13209915161132812
+  },
+  {
+   "name": "encoder.layers.1.conv.pointwise_conv1",
+   "out_features": 2048,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": true,
+   "has_bias": false,
+   "zero_fraction": 0.4484829902648926
+  },
+  {
+   "name": "encoder.layers.1.conv.pointwise_conv2",
+   "out_features": 1024,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": true,
+   "has_bias": false,
+   "zero_fraction": 0.43465423583984375
+  },
+  {
+   "name": "encoder.layers.1.feed_forward2.linear1",
+   "out_features": 4096,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.42896461486816406
+  },
+  {
+   "name": "encoder.layers.1.feed_forward2.linear2",
+   "out_features": 1024,
+   "in_features": 4096,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.5293712615966797
+  },
+  {
+   "name": "encoder.layers.2.feed_forward1.linear1",
+   "out_features": 4096,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.4617030620574951
+  },
+  {
+   "name": "encoder.layers.2.feed_forward1.linear2",
+   "out_features": 1024,
+   "in_features": 4096,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.45351243019104004
+  },
+  {
+   "name": "encoder.layers.2.self_attn.q_proj",
+   "out_features": 1024,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.32970237731933594
+  },
+  {
+   "name": "encoder.layers.2.self_attn.k_proj",
+   "out_features": 1024,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.5406455993652344
+  },
+  {
+   "name": "encoder.layers.2.self_attn.v_proj",
+   "out_features": 1024,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.40648365020751953
+  },
+  {
+   "name": "encoder.layers.2.self_attn.o_proj",
+   "out_features": 1024,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.38976478576660156
+  },
+  {
+   "name": "encoder.layers.2.self_attn.relative_k_proj",
+   "out_features": 1024,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.1539907455444336
+  },
+  {
+   "name": "encoder.layers.2.conv.pointwise_conv1",
+   "out_features": 2048,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": true,
+   "has_bias": false,
+   "zero_fraction": 0.45189952850341797
+  },
+  {
+   "name": "encoder.layers.2.conv.pointwise_conv2",
+   "out_features": 1024,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": true,
+   "has_bias": false,
+   "zero_fraction": 0.45950984954833984
+  },
+  {
+   "name": "encoder.layers.2.feed_forward2.linear1",
+   "out_features": 4096,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.43088412284851074
+  },
+  {
+   "name": "encoder.layers.2.feed_forward2.linear2",
+   "out_features": 1024,
+   "in_features": 4096,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.5336544513702393
+  },
+  {
+   "name": "encoder.layers.3.feed_forward1.linear1",
+   "out_features": 4096,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.4594447612762451
+  },
+  {
+   "name": "encoder.layers.3.feed_forward1.linear2",
+   "out_features": 1024,
+   "in_features": 4096,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.4711878299713135
+  },
+  {
+   "name": "encoder.layers.3.self_attn.q_proj",
+   "out_features": 1024,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.34746265411376953
+  },
+  {
+   "name": "encoder.layers.3.self_attn.k_proj",
+   "out_features": 1024,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.5459375381469727
+  },
+  {
+   "name": "encoder.layers.3.self_attn.v_proj",
+   "out_features": 1024,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.3894500732421875
+  },
+  {
+   "name": "encoder.layers.3.self_attn.o_proj",
+   "out_features": 1024,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.37818431854248047
+  },
+  {
+   "name": "encoder.layers.3.self_attn.relative_k_proj",
+   "out_features": 1024,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.15802383422851562
+  },
+  {
+   "name": "encoder.layers.3.conv.pointwise_conv1",
+   "out_features": 2048,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": true,
+   "has_bias": false,
+   "zero_fraction": 0.4486575126647949
+  },
+  {
+   "name": "encoder.layers.3.conv.pointwise_conv2",
+   "out_features": 1024,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": true,
+   "has_bias": false,
+   "zero_fraction": 0.4589385986328125
+  },
+  {
+   "name": "encoder.layers.3.feed_forward2.linear1",
+   "out_features": 4096,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.4405934810638428
+  },
+  {
+   "name": "encoder.layers.3.feed_forward2.linear2",
+   "out_features": 1024,
+   "in_features": 4096,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.540421724319458
+  },
+  {
+   "name": "encoder.layers.4.feed_forward1.linear1",
+   "out_features": 4096,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.4638183116912842
+  },
+  {
+   "name": "encoder.layers.4.feed_forward1.linear2",
+   "out_features": 1024,
+   "in_features": 4096,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.48339200019836426
+  },
+  {
+   "name": "encoder.layers.4.self_attn.q_proj",
+   "out_features": 1024,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.3684682846069336
+  },
+  {
+   "name": "encoder.layers.4.self_attn.k_proj",
+   "out_features": 1024,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.5612239837646484
+  },
+  {
+   "name": "encoder.layers.4.self_attn.v_proj",
+   "out_features": 1024,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.38426876068115234
+  },
+  {
+   "name": "encoder.layers.4.self_attn.o_proj",
+   "out_features": 1024,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.3797454833984375
+  },
+  {
+   "name": "encoder.layers.4.self_attn.relative_k_proj",
+   "out_features": 1024,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.14944171905517578
+  },
+  {
+   "name": "encoder.layers.4.conv.pointwise_conv1",
+   "out_features": 2048,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": true,
+   "has_bias": false,
+   "zero_fraction": 0.45036983489990234
+  },
+  {
+   "name": "encoder.layers.4.conv.pointwise_conv2",
+   "out_features": 1024,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": true,
+   "has_bias": false,
+   "zero_fraction": 0.4643983840942383
+  },
+  {
+   "name": "encoder.layers.4.feed_forward2.linear1",
+   "out_features": 4096,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.447796106338501
+  },
+  {
+   "name": "encoder.layers.4.feed_forward2.linear2",
+   "out_features": 1024,
+   "in_features": 4096,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.547126054763794
+  },
+  {
+   "name": "encoder.layers.5.feed_forward1.linear1",
+   "out_features": 4096,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.47231388092041016
+  },
+  {
+   "name": "encoder.layers.5.feed_forward1.linear2",
+   "out_features": 1024,
+   "in_features": 4096,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.48183250427246094
+  },
+  {
+   "name": "encoder.layers.5.self_attn.q_proj",
+   "out_features": 1024,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.3488779067993164
+  },
+  {
+   "name": "encoder.layers.5.self_attn.k_proj",
+   "out_features": 1024,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.5331039428710938
+  },
+  {
+   "name": "encoder.layers.5.self_attn.v_proj",
+   "out_features": 1024,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.40555763244628906
+  },
+  {
+   "name": "encoder.layers.5.self_attn.o_proj",
+   "out_features": 1024,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.3914680480957031
+  },
+  {
+   "name": "encoder.layers.5.self_attn.relative_k_proj",
+   "out_features": 1024,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.15366840362548828
+  },
+  {
+   "name": "encoder.layers.5.conv.pointwise_conv1",
+   "out_features": 2048,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": true,
+   "has_bias": false,
+   "zero_fraction": 0.45035457611083984
+  },
+  {
+   "name": "encoder.layers.5.conv.pointwise_conv2",
+   "out_features": 1024,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": true,
+   "has_bias": false,
+   "zero_fraction": 0.4670143127441406
+  },
+  {
+   "name": "encoder.layers.5.feed_forward2.linear1",
+   "out_features": 4096,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.45580148696899414
+  },
+  {
+   "name": "encoder.layers.5.feed_forward2.linear2",
+   "out_features": 1024,
+   "in_features": 4096,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.5230386257171631
+  },
+  {
+   "name": "encoder.layers.6.feed_forward1.linear1",
+   "out_features": 4096,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.4766519069671631
+  },
+  {
+   "name": "encoder.layers.6.feed_forward1.linear2",
+   "out_features": 1024,
+   "in_features": 4096,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.4740920066833496
+  },
+  {
+   "name": "encoder.layers.6.self_attn.q_proj",
+   "out_features": 1024,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.3270740509033203
+  },
+  {
+   "name": "encoder.layers.6.self_attn.k_proj",
+   "out_features": 1024,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.5052204132080078
+  },
+  {
+   "name": "encoder.layers.6.self_attn.v_proj",
+   "out_features": 1024,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.4151468276977539
+  },
+  {
+   "name": "encoder.layers.6.self_attn.o_proj",
+   "out_features": 1024,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.4025430679321289
+  },
+  {
+   "name": "encoder.layers.6.self_attn.relative_k_proj",
+   "out_features": 1024,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.15303707122802734
+  },
+  {
+   "name": "encoder.layers.6.conv.pointwise_conv1",
+   "out_features": 2048,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": true,
+   "has_bias": false,
+   "zero_fraction": 0.45003604888916016
+  },
+  {
+   "name": "encoder.layers.6.conv.pointwise_conv2",
+   "out_features": 1024,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": true,
+   "has_bias": false,
+   "zero_fraction": 0.4495658874511719
+  },
+  {
+   "name": "encoder.layers.6.feed_forward2.linear1",
+   "out_features": 4096,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.4526941776275635
+  },
+  {
+   "name": "encoder.layers.6.feed_forward2.linear2",
+   "out_features": 1024,
+   "in_features": 4096,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.5148673057556152
+  },
+  {
+   "name": "encoder.layers.7.feed_forward1.linear1",
+   "out_features": 4096,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.48210573196411133
+  },
+  {
+   "name": "encoder.layers.7.feed_forward1.linear2",
+   "out_features": 1024,
+   "in_features": 4096,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.46149134635925293
+  },
+  {
+   "name": "encoder.layers.7.self_attn.q_proj",
+   "out_features": 1024,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.33362388610839844
+  },
+  {
+   "name": "encoder.layers.7.self_attn.k_proj",
+   "out_features": 1024,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.5477542877197266
+  },
+  {
+   "name": "encoder.layers.7.self_attn.v_proj",
+   "out_features": 1024,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.42502307891845703
+  },
+  {
+   "name": "encoder.layers.7.self_attn.o_proj",
+   "out_features": 1024,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.3920621871948242
+  },
+  {
+   "name": "encoder.layers.7.self_attn.relative_k_proj",
+   "out_features": 1024,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.1467151641845703
+  },
+  {
+   "name": "encoder.layers.7.conv.pointwise_conv1",
+   "out_features": 2048,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": true,
+   "has_bias": false,
+   "zero_fraction": 0.4432258605957031
+  },
+  {
+   "name": "encoder.layers.7.conv.pointwise_conv2",
+   "out_features": 1024,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": true,
+   "has_bias": false,
+   "zero_fraction": 0.4387655258178711
+  },
+  {
+   "name": "encoder.layers.7.feed_forward2.linear1",
+   "out_features": 4096,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.4537210464477539
+  },
+  {
+   "name": "encoder.layers.7.feed_forward2.linear2",
+   "out_features": 1024,
+   "in_features": 4096,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.5217123031616211
+  },
+  {
+   "name": "encoder.layers.8.feed_forward1.linear1",
+   "out_features": 4096,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.48615384101867676
+  },
+  {
+   "name": "encoder.layers.8.feed_forward1.linear2",
+   "out_features": 1024,
+   "in_features": 4096,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.4634566307067871
+  },
+  {
+   "name": "encoder.layers.8.self_attn.q_proj",
+   "out_features": 1024,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.34348583221435547
+  },
+  {
+   "name": "encoder.layers.8.self_attn.k_proj",
+   "out_features": 1024,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.5461740493774414
+  },
+  {
+   "name": "encoder.layers.8.self_attn.v_proj",
+   "out_features": 1024,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.3690071105957031
+  },
+  {
+   "name": "encoder.layers.8.self_attn.o_proj",
+   "out_features": 1024,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.37335777282714844
+  },
+  {
+   "name": "encoder.layers.8.self_attn.relative_k_proj",
+   "out_features": 1024,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.14555931091308594
+  },
+  {
+   "name": "encoder.layers.8.conv.pointwise_conv1",
+   "out_features": 2048,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": true,
+   "has_bias": false,
+   "zero_fraction": 0.4336113929748535
+  },
+  {
+   "name": "encoder.layers.8.conv.pointwise_conv2",
+   "out_features": 1024,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": true,
+   "has_bias": false,
+   "zero_fraction": 0.42722225189208984
+  },
+  {
+   "name": "encoder.layers.8.feed_forward2.linear1",
+   "out_features": 4096,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.46222662925720215
+  },
+  {
+   "name": "encoder.layers.8.feed_forward2.linear2",
+   "out_features": 1024,
+   "in_features": 4096,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.5234966278076172
+  },
+  {
+   "name": "encoder.layers.9.feed_forward1.linear1",
+   "out_features": 4096,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.49318695068359375
+  },
+  {
+   "name": "encoder.layers.9.feed_forward1.linear2",
+   "out_features": 1024,
+   "in_features": 4096,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.471712589263916
+  },
+  {
+   "name": "encoder.layers.9.self_attn.q_proj",
+   "out_features": 1024,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.3633537292480469
+  },
+  {
+   "name": "encoder.layers.9.self_attn.k_proj",
+   "out_features": 1024,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.5625839233398438
+  },
+  {
+   "name": "encoder.layers.9.self_attn.v_proj",
+   "out_features": 1024,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.37224864959716797
+  },
+  {
+   "name": "encoder.layers.9.self_attn.o_proj",
+   "out_features": 1024,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.3777170181274414
+  },
+  {
+   "name": "encoder.layers.9.self_attn.relative_k_proj",
+   "out_features": 1024,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.15102577209472656
+  },
+  {
+   "name": "encoder.layers.9.conv.pointwise_conv1",
+   "out_features": 2048,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": true,
+   "has_bias": false,
+   "zero_fraction": 0.4328136444091797
+  },
+  {
+   "name": "encoder.layers.9.conv.pointwise_conv2",
+   "out_features": 1024,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": true,
+   "has_bias": false,
+   "zero_fraction": 0.41849327087402344
+  },
+  {
+   "name": "encoder.layers.9.feed_forward2.linear1",
+   "out_features": 4096,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.47850704193115234
+  },
+  {
+   "name": "encoder.layers.9.feed_forward2.linear2",
+   "out_features": 1024,
+   "in_features": 4096,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.5117299556732178
+  },
+  {
+   "name": "encoder.layers.10.feed_forward1.linear1",
+   "out_features": 4096,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.5326597690582275
+  },
+  {
+   "name": "encoder.layers.10.feed_forward1.linear2",
+   "out_features": 1024,
+   "in_features": 4096,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.4868049621582031
+  },
+  {
+   "name": "encoder.layers.10.self_attn.q_proj",
+   "out_features": 1024,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.38233089447021484
+  },
+  {
+   "name": "encoder.layers.10.self_attn.k_proj",
+   "out_features": 1024,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.6121854782104492
+  },
+  {
+   "name": "encoder.layers.10.self_attn.v_proj",
+   "out_features": 1024,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.3678264617919922
+  },
+  {
+   "name": "encoder.layers.10.self_attn.o_proj",
+   "out_features": 1024,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.36456298828125
+  },
+  {
+   "name": "encoder.layers.10.self_attn.relative_k_proj",
+   "out_features": 1024,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.14080429077148438
+  },
+  {
+   "name": "encoder.layers.10.conv.pointwise_conv1",
+   "out_features": 2048,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": true,
+   "has_bias": false,
+   "zero_fraction": 0.4323916435241699
+  },
+  {
+   "name": "encoder.layers.10.conv.pointwise_conv2",
+   "out_features": 1024,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": true,
+   "has_bias": false,
+   "zero_fraction": 0.42212963104248047
+  },
+  {
+   "name": "encoder.layers.10.feed_forward2.linear1",
+   "out_features": 4096,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.4855043888092041
+  },
+  {
+   "name": "encoder.layers.10.feed_forward2.linear2",
+   "out_features": 1024,
+   "in_features": 4096,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.5134315490722656
+  },
+  {
+   "name": "encoder.layers.11.feed_forward1.linear1",
+   "out_features": 4096,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.5217080116271973
+  },
+  {
+   "name": "encoder.layers.11.feed_forward1.linear2",
+   "out_features": 1024,
+   "in_features": 4096,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.4963808059692383
+  },
+  {
+   "name": "encoder.layers.11.self_attn.q_proj",
+   "out_features": 1024,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.35190773010253906
+  },
+  {
+   "name": "encoder.layers.11.self_attn.k_proj",
+   "out_features": 1024,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.5736579895019531
+  },
+  {
+   "name": "encoder.layers.11.self_attn.v_proj",
+   "out_features": 1024,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.3828563690185547
+  },
+  {
+   "name": "encoder.layers.11.self_attn.o_proj",
+   "out_features": 1024,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.3663148880004883
+  },
+  {
+   "name": "encoder.layers.11.self_attn.relative_k_proj",
+   "out_features": 1024,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.15211105346679688
+  },
+  {
+   "name": "encoder.layers.11.conv.pointwise_conv1",
+   "out_features": 2048,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": true,
+   "has_bias": false,
+   "zero_fraction": 0.43471431732177734
+  },
+  {
+   "name": "encoder.layers.11.conv.pointwise_conv2",
+   "out_features": 1024,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": true,
+   "has_bias": false,
+   "zero_fraction": 0.42731475830078125
+  },
+  {
+   "name": "encoder.layers.11.feed_forward2.linear1",
+   "out_features": 4096,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.4918859004974365
+  },
+  {
+   "name": "encoder.layers.11.feed_forward2.linear2",
+   "out_features": 1024,
+   "in_features": 4096,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.5454516410827637
+  },
+  {
+   "name": "encoder.layers.12.feed_forward1.linear1",
+   "out_features": 4096,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.5295507907867432
+  },
+  {
+   "name": "encoder.layers.12.feed_forward1.linear2",
+   "out_features": 1024,
+   "in_features": 4096,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.4964902400970459
+  },
+  {
+   "name": "encoder.layers.12.self_attn.q_proj",
+   "out_features": 1024,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.3329486846923828
+  },
+  {
+   "name": "encoder.layers.12.self_attn.k_proj",
+   "out_features": 1024,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.5321378707885742
+  },
+  {
+   "name": "encoder.layers.12.self_attn.v_proj",
+   "out_features": 1024,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.3993492126464844
+  },
+  {
+   "name": "encoder.layers.12.self_attn.o_proj",
+   "out_features": 1024,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.3653535842895508
+  },
+  {
+   "name": "encoder.layers.12.self_attn.relative_k_proj",
+   "out_features": 1024,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.16003036499023438
+  },
+  {
+   "name": "encoder.layers.12.conv.pointwise_conv1",
+   "out_features": 2048,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": true,
+   "has_bias": false,
+   "zero_fraction": 0.43686389923095703
+  },
+  {
+   "name": "encoder.layers.12.conv.pointwise_conv2",
+   "out_features": 1024,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": true,
+   "has_bias": false,
+   "zero_fraction": 0.4244871139526367
+  },
+  {
+   "name": "encoder.layers.12.feed_forward2.linear1",
+   "out_features": 4096,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.47611141204833984
+  },
+  {
+   "name": "encoder.layers.12.feed_forward2.linear2",
+   "out_features": 1024,
+   "in_features": 4096,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.5230574607849121
+  },
+  {
+   "name": "encoder.layers.13.feed_forward1.linear1",
+   "out_features": 4096,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.531564474105835
+  },
+  {
+   "name": "encoder.layers.13.feed_forward1.linear2",
+   "out_features": 1024,
+   "in_features": 4096,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.5122246742248535
+  },
+  {
+   "name": "encoder.layers.13.self_attn.q_proj",
+   "out_features": 1024,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.36064720153808594
+  },
+  {
+   "name": "encoder.layers.13.self_attn.k_proj",
+   "out_features": 1024,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.5534095764160156
+  },
+  {
+   "name": "encoder.layers.13.self_attn.v_proj",
+   "out_features": 1024,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.37798595428466797
+  },
+  {
+   "name": "encoder.layers.13.self_attn.o_proj",
+   "out_features": 1024,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.35416412353515625
+  },
+  {
+   "name": "encoder.layers.13.self_attn.relative_k_proj",
+   "out_features": 1024,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.14722442626953125
+  },
+  {
+   "name": "encoder.layers.13.conv.pointwise_conv1",
+   "out_features": 2048,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": true,
+   "has_bias": false,
+   "zero_fraction": 0.43766117095947266
+  },
+  {
+   "name": "encoder.layers.13.conv.pointwise_conv2",
+   "out_features": 1024,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": true,
+   "has_bias": false,
+   "zero_fraction": 0.41414833068847656
+  },
+  {
+   "name": "encoder.layers.13.feed_forward2.linear1",
+   "out_features": 4096,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.4815671443939209
+  },
+  {
+   "name": "encoder.layers.13.feed_forward2.linear2",
+   "out_features": 1024,
+   "in_features": 4096,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.4973268508911133
+  },
+  {
+   "name": "encoder.layers.14.feed_forward1.linear1",
+   "out_features": 4096,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.5406713485717773
+  },
+  {
+   "name": "encoder.layers.14.feed_forward1.linear2",
+   "out_features": 1024,
+   "in_features": 4096,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.520122766494751
+  },
+  {
+   "name": "encoder.layers.14.self_attn.q_proj",
+   "out_features": 1024,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.37984371185302734
+  },
+  {
+   "name": "encoder.layers.14.self_attn.k_proj",
+   "out_features": 1024,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.5693721771240234
+  },
+  {
+   "name": "encoder.layers.14.self_attn.v_proj",
+   "out_features": 1024,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.37279415130615234
+  },
+  {
+   "name": "encoder.layers.14.self_attn.o_proj",
+   "out_features": 1024,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.35245513916015625
+  },
+  {
+   "name": "encoder.layers.14.self_attn.relative_k_proj",
+   "out_features": 1024,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.14053821563720703
+  },
+  {
+   "name": "encoder.layers.14.conv.pointwise_conv1",
+   "out_features": 2048,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": true,
+   "has_bias": false,
+   "zero_fraction": 0.4381241798400879
+  },
+  {
+   "name": "encoder.layers.14.conv.pointwise_conv2",
+   "out_features": 1024,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": true,
+   "has_bias": false,
+   "zero_fraction": 0.41631603240966797
+  },
+  {
+   "name": "encoder.layers.14.feed_forward2.linear1",
+   "out_features": 4096,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.48996448516845703
+  },
+  {
+   "name": "encoder.layers.14.feed_forward2.linear2",
+   "out_features": 1024,
+   "in_features": 4096,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.5002038478851318
+  },
+  {
+   "name": "encoder.layers.15.feed_forward1.linear1",
+   "out_features": 4096,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.5357084274291992
+  },
+  {
+   "name": "encoder.layers.15.feed_forward1.linear2",
+   "out_features": 1024,
+   "in_features": 4096,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.5198726654052734
+  },
+  {
+   "name": "encoder.layers.15.self_attn.q_proj",
+   "out_features": 1024,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.3787193298339844
+  },
+  {
+   "name": "encoder.layers.15.self_attn.k_proj",
+   "out_features": 1024,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.6187000274658203
+  },
+  {
+   "name": "encoder.layers.15.self_attn.v_proj",
+   "out_features": 1024,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.37151432037353516
+  },
+  {
+   "name": "encoder.layers.15.self_attn.o_proj",
+   "out_features": 1024,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.3600912094116211
+  },
+  {
+   "name": "encoder.layers.15.self_attn.relative_k_proj",
+   "out_features": 1024,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.14568805694580078
+  },
+  {
+   "name": "encoder.layers.15.conv.pointwise_conv1",
+   "out_features": 2048,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": true,
+   "has_bias": false,
+   "zero_fraction": 0.43272924423217773
+  },
+  {
+   "name": "encoder.layers.15.conv.pointwise_conv2",
+   "out_features": 1024,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": true,
+   "has_bias": false,
+   "zero_fraction": 0.41810035705566406
+  },
+  {
+   "name": "encoder.layers.15.feed_forward2.linear1",
+   "out_features": 4096,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.49303531646728516
+  },
+  {
+   "name": "encoder.layers.15.feed_forward2.linear2",
+   "out_features": 1024,
+   "in_features": 4096,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.53395676612854
+  },
+  {
+   "name": "encoder.layers.16.feed_forward1.linear1",
+   "out_features": 4096,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.5362865924835205
+  },
+  {
+   "name": "encoder.layers.16.feed_forward1.linear2",
+   "out_features": 1024,
+   "in_features": 4096,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.5048935413360596
+  },
+  {
+   "name": "encoder.layers.16.self_attn.q_proj",
+   "out_features": 1024,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.3586082458496094
+  },
+  {
+   "name": "encoder.layers.16.self_attn.k_proj",
+   "out_features": 1024,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.5664215087890625
+  },
+  {
+   "name": "encoder.layers.16.self_attn.v_proj",
+   "out_features": 1024,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.3739347457885742
+  },
+  {
+   "name": "encoder.layers.16.self_attn.o_proj",
+   "out_features": 1024,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.36450672149658203
+  },
+  {
+   "name": "encoder.layers.16.self_attn.relative_k_proj",
+   "out_features": 1024,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.1494426727294922
+  },
+  {
+   "name": "encoder.layers.16.conv.pointwise_conv1",
+   "out_features": 2048,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": true,
+   "has_bias": false,
+   "zero_fraction": 0.43798398971557617
+  },
+  {
+   "name": "encoder.layers.16.conv.pointwise_conv2",
+   "out_features": 1024,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": true,
+   "has_bias": false,
+   "zero_fraction": 0.3995380401611328
+  },
+  {
+   "name": "encoder.layers.16.feed_forward2.linear1",
+   "out_features": 4096,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.46408939361572266
+  },
+  {
+   "name": "encoder.layers.16.feed_forward2.linear2",
+   "out_features": 1024,
+   "in_features": 4096,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.47188329696655273
+  },
+  {
+   "name": "encoder.layers.17.feed_forward1.linear1",
+   "out_features": 4096,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.4892551898956299
+  },
+  {
+   "name": "encoder.layers.17.feed_forward1.linear2",
+   "out_features": 1024,
+   "in_features": 4096,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.4277915954589844
+  },
+  {
+   "name": "encoder.layers.17.self_attn.q_proj",
+   "out_features": 1024,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.35779476165771484
+  },
+  {
+   "name": "encoder.layers.17.self_attn.k_proj",
+   "out_features": 1024,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.6346902847290039
+  },
+  {
+   "name": "encoder.layers.17.self_attn.v_proj",
+   "out_features": 1024,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.3553304672241211
+  },
+  {
+   "name": "encoder.layers.17.self_attn.o_proj",
+   "out_features": 1024,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.3436117172241211
+  },
+  {
+   "name": "encoder.layers.17.self_attn.relative_k_proj",
+   "out_features": 1024,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.2155017852783203
+  },
+  {
+   "name": "encoder.layers.17.conv.pointwise_conv1",
+   "out_features": 2048,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": true,
+   "has_bias": false,
+   "zero_fraction": 0.4304986000061035
+  },
+  {
+   "name": "encoder.layers.17.conv.pointwise_conv2",
+   "out_features": 1024,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": true,
+   "has_bias": false,
+   "zero_fraction": 0.39414215087890625
+  },
+  {
+   "name": "encoder.layers.17.feed_forward2.linear1",
+   "out_features": 4096,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.4398188591003418
+  },
+  {
+   "name": "encoder.layers.17.feed_forward2.linear2",
+   "out_features": 1024,
+   "in_features": 4096,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.4505887031555176
+  },
+  {
+   "name": "encoder.layers.18.feed_forward1.linear1",
+   "out_features": 4096,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.4843440055847168
+  },
+  {
+   "name": "encoder.layers.18.feed_forward1.linear2",
+   "out_features": 1024,
+   "in_features": 4096,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.43118953704833984
+  },
+  {
+   "name": "encoder.layers.18.self_attn.q_proj",
+   "out_features": 1024,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.3386106491088867
+  },
+  {
+   "name": "encoder.layers.18.self_attn.k_proj",
+   "out_features": 1024,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.5647468566894531
+  },
+  {
+   "name": "encoder.layers.18.self_attn.v_proj",
+   "out_features": 1024,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.37237071990966797
+  },
+  {
+   "name": "encoder.layers.18.self_attn.o_proj",
+   "out_features": 1024,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.3634309768676758
+  },
+  {
+   "name": "encoder.layers.18.self_attn.relative_k_proj",
+   "out_features": 1024,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.1491680145263672
+  },
+  {
+   "name": "encoder.layers.18.conv.pointwise_conv1",
+   "out_features": 2048,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": true,
+   "has_bias": false,
+   "zero_fraction": 0.43354082107543945
+  },
+  {
+   "name": "encoder.layers.18.conv.pointwise_conv2",
+   "out_features": 1024,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": true,
+   "has_bias": false,
+   "zero_fraction": 0.4006175994873047
+  },
+  {
+   "name": "encoder.layers.18.feed_forward2.linear1",
+   "out_features": 4096,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.4384031295776367
+  },
+  {
+   "name": "encoder.layers.18.feed_forward2.linear2",
+   "out_features": 1024,
+   "in_features": 4096,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.4480724334716797
+  },
+  {
+   "name": "encoder.layers.19.feed_forward1.linear1",
+   "out_features": 4096,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.47231221199035645
+  },
+  {
+   "name": "encoder.layers.19.feed_forward1.linear2",
+   "out_features": 1024,
+   "in_features": 4096,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.40505099296569824
+  },
+  {
+   "name": "encoder.layers.19.self_attn.q_proj",
+   "out_features": 1024,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.3529081344604492
+  },
+  {
+   "name": "encoder.layers.19.self_attn.k_proj",
+   "out_features": 1024,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.5809326171875
+  },
+  {
+   "name": "encoder.layers.19.self_attn.v_proj",
+   "out_features": 1024,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.36546993255615234
+  },
+  {
+   "name": "encoder.layers.19.self_attn.o_proj",
+   "out_features": 1024,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.35294342041015625
+  },
+  {
+   "name": "encoder.layers.19.self_attn.relative_k_proj",
+   "out_features": 1024,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.17095470428466797
+  },
+  {
+   "name": "encoder.layers.19.conv.pointwise_conv1",
+   "out_features": 2048,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": true,
+   "has_bias": false,
+   "zero_fraction": 0.4216432571411133
+  },
+  {
+   "name": "encoder.layers.19.conv.pointwise_conv2",
+   "out_features": 1024,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": true,
+   "has_bias": false,
+   "zero_fraction": 0.3793497085571289
+  },
+  {
+   "name": "encoder.layers.19.feed_forward2.linear1",
+   "out_features": 4096,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.42360615730285645
+  },
+  {
+   "name": "encoder.layers.19.feed_forward2.linear2",
+   "out_features": 1024,
+   "in_features": 4096,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.45482897758483887
+  },
+  {
+   "name": "encoder.layers.20.feed_forward1.linear1",
+   "out_features": 4096,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.4815986156463623
+  },
+  {
+   "name": "encoder.layers.20.feed_forward1.linear2",
+   "out_features": 1024,
+   "in_features": 4096,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.36296963691711426
+  },
+  {
+   "name": "encoder.layers.20.self_attn.q_proj",
+   "out_features": 1024,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.39092063903808594
+  },
+  {
+   "name": "encoder.layers.20.self_attn.k_proj",
+   "out_features": 1024,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.5931243896484375
+  },
+  {
+   "name": "encoder.layers.20.self_attn.v_proj",
+   "out_features": 1024,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.3127937316894531
+  },
+  {
+   "name": "encoder.layers.20.self_attn.o_proj",
+   "out_features": 1024,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.30979347229003906
+  },
+  {
+   "name": "encoder.layers.20.self_attn.relative_k_proj",
+   "out_features": 1024,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.14920997619628906
+  },
+  {
+   "name": "encoder.layers.20.conv.pointwise_conv1",
+   "out_features": 2048,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": true,
+   "has_bias": false,
+   "zero_fraction": 0.4177713394165039
+  },
+  {
+   "name": "encoder.layers.20.conv.pointwise_conv2",
+   "out_features": 1024,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": true,
+   "has_bias": false,
+   "zero_fraction": 0.33641719818115234
+  },
+  {
+   "name": "encoder.layers.20.feed_forward2.linear1",
+   "out_features": 4096,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.43540430068969727
+  },
+  {
+   "name": "encoder.layers.20.feed_forward2.linear2",
+   "out_features": 1024,
+   "in_features": 4096,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.39700770378112793
+  },
+  {
+   "name": "encoder.layers.21.feed_forward1.linear1",
+   "out_features": 4096,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.48596787452697754
+  },
+  {
+   "name": "encoder.layers.21.feed_forward1.linear2",
+   "out_features": 1024,
+   "in_features": 4096,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.3406181335449219
+  },
+  {
+   "name": "encoder.layers.21.self_attn.q_proj",
+   "out_features": 1024,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.37795257568359375
+  },
+  {
+   "name": "encoder.layers.21.self_attn.k_proj",
+   "out_features": 1024,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.5576667785644531
+  },
+  {
+   "name": "encoder.layers.21.self_attn.v_proj",
+   "out_features": 1024,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.3066892623901367
+  },
+  {
+   "name": "encoder.layers.21.self_attn.o_proj",
+   "out_features": 1024,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.2996206283569336
+  },
+  {
+   "name": "encoder.layers.21.self_attn.relative_k_proj",
+   "out_features": 1024,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.15436172485351562
+  },
+  {
+   "name": "encoder.layers.21.conv.pointwise_conv1",
+   "out_features": 2048,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": true,
+   "has_bias": false,
+   "zero_fraction": 0.40650415420532227
+  },
+  {
+   "name": "encoder.layers.21.conv.pointwise_conv2",
+   "out_features": 1024,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": true,
+   "has_bias": false,
+   "zero_fraction": 0.314422607421875
+  },
+  {
+   "name": "encoder.layers.21.feed_forward2.linear1",
+   "out_features": 4096,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.39052605628967285
+  },
+  {
+   "name": "encoder.layers.21.feed_forward2.linear2",
+   "out_features": 1024,
+   "in_features": 4096,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.3677656650543213
+  },
+  {
+   "name": "encoder.layers.22.feed_forward1.linear1",
+   "out_features": 4096,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.4427375793457031
+  },
+  {
+   "name": "encoder.layers.22.feed_forward1.linear2",
+   "out_features": 1024,
+   "in_features": 4096,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.3055906295776367
+  },
+  {
+   "name": "encoder.layers.22.self_attn.q_proj",
+   "out_features": 1024,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.3857412338256836
+  },
+  {
+   "name": "encoder.layers.22.self_attn.k_proj",
+   "out_features": 1024,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.5995121002197266
+  },
+  {
+   "name": "encoder.layers.22.self_attn.v_proj",
+   "out_features": 1024,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.2965202331542969
+  },
+  {
+   "name": "encoder.layers.22.self_attn.o_proj",
+   "out_features": 1024,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.28084754943847656
+  },
+  {
+   "name": "encoder.layers.22.self_attn.relative_k_proj",
+   "out_features": 1024,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.14216327667236328
+  },
+  {
+   "name": "encoder.layers.22.conv.pointwise_conv1",
+   "out_features": 2048,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": true,
+   "has_bias": false,
+   "zero_fraction": 0.37828636169433594
+  },
+  {
+   "name": "encoder.layers.22.conv.pointwise_conv2",
+   "out_features": 1024,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": true,
+   "has_bias": false,
+   "zero_fraction": 0.2952146530151367
+  },
+  {
+   "name": "encoder.layers.22.feed_forward2.linear1",
+   "out_features": 4096,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.4962489604949951
+  },
+  {
+   "name": "encoder.layers.22.feed_forward2.linear2",
+   "out_features": 1024,
+   "in_features": 4096,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.32378721237182617
+  },
+  {
+   "name": "encoder.layers.23.feed_forward1.linear1",
+   "out_features": 4096,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.4867126941680908
+  },
+  {
+   "name": "encoder.layers.23.feed_forward1.linear2",
+   "out_features": 1024,
+   "in_features": 4096,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.2900993824005127
+  },
+  {
+   "name": "encoder.layers.23.self_attn.q_proj",
+   "out_features": 1024,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.3742027282714844
+  },
+  {
+   "name": "encoder.layers.23.self_attn.k_proj",
+   "out_features": 1024,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.5684337615966797
+  },
+  {
+   "name": "encoder.layers.23.self_attn.v_proj",
+   "out_features": 1024,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.2869300842285156
+  },
+  {
+   "name": "encoder.layers.23.self_attn.o_proj",
+   "out_features": 1024,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.29657459259033203
+  },
+  {
+   "name": "encoder.layers.23.self_attn.relative_k_proj",
+   "out_features": 1024,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.1371021270751953
+  },
+  {
+   "name": "encoder.layers.23.conv.pointwise_conv1",
+   "out_features": 2048,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": true,
+   "has_bias": false,
+   "zero_fraction": 0.38350915908813477
+  },
+  {
+   "name": "encoder.layers.23.conv.pointwise_conv2",
+   "out_features": 1024,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": true,
+   "has_bias": false,
+   "zero_fraction": 0.3024635314941406
+  },
+  {
+   "name": "encoder.layers.23.feed_forward2.linear1",
+   "out_features": 4096,
+   "in_features": 1024,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.30291128158569336
+  },
+  {
+   "name": "encoder.layers.23.feed_forward2.linear2",
+   "out_features": 1024,
+   "in_features": 4096,
+   "group_size": 128,
+   "as_conv1d": false,
+   "has_bias": false,
+   "zero_fraction": 0.3130035400390625
+  }
+ ],
+ "n_quantized_params": 603979776,
+ "n_dense_params": 23290911,
+ "size_mb": 177.7
+}

@@ -1,0 +1,10 @@
+parakeet-redux-rs
+Copyright 2026 Maksym Lypivskyi
+
+Licensed under the Apache License, Version 2.0 (see LICENSE).
+
+Model weights are not part of this repository. moondream/parakeet-redux and nvidia/parakeet-tdt-0.6b-v3
+are © NVIDIA and M87 Labs (Moondream), CC-BY-4.0 (https://huggingface.co/moondream/parakeet-redux).
+
+third_party/open_asr_leaderboard_normalizer: Open ASR Leaderboard text normalizer (Hugging Face / OpenAI Whisper),
+Apache-2.0, see its LICENSE.

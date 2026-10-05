@@ -1,0 +1,19 @@
+[project]
+name = "prx-reference"
+version = "0.0.1"
+description = "Dev-only Python reference for parakeet-redux-rs: dequantize, score, dump golden tensors"
+requires-python = ">=3.12"
+dependencies = [
+  "torch>=2.4",
+  "transformers>=4.57",
+  "safetensors>=0.4",
+  "numpy>=1.26",
+  "soundfile>=0.12",
+  "jiwer>=3.0",
+  "datasets>=3.0",
+  "huggingface_hub>=0.25",
+  "pyyaml>=6.0",
+  "librosa>=0.10",
+  "regex>=2024.0",
+  "kaldialign>=0.9",
+]
