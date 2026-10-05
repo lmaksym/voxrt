@@ -47,10 +47,23 @@ impl Transcriber {
     }
 
     pub fn transcribe_samples(&self, samples: &[f32]) -> Transcript {
+        let profiling = std::env::var_os("PRX_PROFILE").is_some();
+        let t0 = std::time::Instant::now();
         let (feats, t) = self.frontend.compute(samples);
+        let t1 = std::time::Instant::now();
         let (enc, te) = self.encoder.forward(&feats, t, None, None);
+        let t2 = std::time::Instant::now();
         let proj = self.decoder.project_encoder(&enc, te);
         let emissions = self.decoder.greedy(&proj, te, None);
+        if profiling {
+            eprintln!(
+                "pipeline profile: frontend {:.3}s · encoder {:.3}s · decoder {:.3}s ({} steps)",
+                (t1 - t0).as_secs_f64(),
+                (t2 - t1).as_secs_f64(),
+                t2.elapsed().as_secs_f64(),
+                emissions.len()
+            );
+        }
         let ids: Vec<usize> = emissions.iter().map(|e| e.token).collect();
         Transcript {
             text: self.tokenizer.decode(&ids),

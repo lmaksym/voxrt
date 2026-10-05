@@ -1,6 +1,6 @@
 //! TDT prediction network, joint and greedy loop (PLAN 2.10). Semantics: `docs/tdt.md` (NeMo rule).
 use crate::format::ModelFile;
-use crate::tensor::{dot, linear, load_f32_shaped, sigmoid};
+use crate::tensor::{gemv_f16, linear, load_f16_bits, load_f32_shaped, sigmoid};
 use crate::Result;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -21,8 +21,8 @@ pub struct Step {
 }
 
 struct LstmLayer {
-    w_ih: Vec<f32>, // [4h, in]
-    w_hh: Vec<f32>, // [4h, h]
+    w_ih: Vec<u16>, // [4h, in], f16 bits (memory-bound per-step GEMV)
+    w_hh: Vec<u16>, // [4h, h]
     b: Vec<f32>,    // b_ih + b_hh, [4h]
 }
 
@@ -40,11 +40,11 @@ pub struct Decoder {
     pub max_symbols: usize,
     embedding: Vec<f32>, // [vocab, hidden]
     lstm: Vec<LstmLayer>,
-    proj_w: Vec<f32>, // decoder_projector [h, h]
+    proj_w: Vec<u16>, // decoder_projector [h, h], f16 bits
     proj_b: Vec<f32>,
     enc_w: Vec<f32>, // encoder_projector [h, d]
     enc_b: Vec<f32>,
-    head_w: Vec<f32>, // [vocab + n_dur, h]
+    head_w: Vec<u16>, // [vocab + n_dur, h], f16 bits
     head_b: Vec<f32>,
     d_model: usize,
 }
@@ -60,8 +60,8 @@ impl Decoder {
         let embedding = load_f32_shaped(m, "decoder.embedding.weight", &[v, h])?;
         let mut lstm = Vec::new();
         for l in 0..c.num_decoder_layers {
-            let w_ih = load_f32_shaped(m, &format!("decoder.lstm.weight_ih_l{l}"), &[4 * h, h])?;
-            let w_hh = load_f32_shaped(m, &format!("decoder.lstm.weight_hh_l{l}"), &[4 * h, h])?;
+            let w_ih = load_f16_bits(m, &format!("decoder.lstm.weight_ih_l{l}"), &[4 * h, h])?;
+            let w_hh = load_f16_bits(m, &format!("decoder.lstm.weight_hh_l{l}"), &[4 * h, h])?;
             let b_ih = load_f32_shaped(m, &format!("decoder.lstm.bias_ih_l{l}"), &[4 * h])?;
             let b_hh = load_f32_shaped(m, &format!("decoder.lstm.bias_hh_l{l}"), &[4 * h])?;
             let b = b_ih.iter().zip(&b_hh).map(|(a, b)| a + b).collect();
@@ -76,11 +76,11 @@ impl Decoder {
             max_symbols: c.max_symbols_per_step,
             embedding,
             lstm,
-            proj_w: load_f32_shaped(m, "decoder.decoder_projector.weight", &[h, h])?,
+            proj_w: load_f16_bits(m, "decoder.decoder_projector.weight", &[h, h])?,
             proj_b: load_f32_shaped(m, "decoder.decoder_projector.bias", &[h])?,
             enc_w: load_f32_shaped(m, "encoder_projector.weight", &[h, d])?,
             enc_b: load_f32_shaped(m, "encoder_projector.bias", &[h])?,
-            head_w: load_f32_shaped(m, "joint.head.weight", &[n_out, h])?,
+            head_w: load_f16_bits(m, "joint.head.weight", &[n_out, h])?,
             head_b: load_f32_shaped(m, "joint.head.bias", &[n_out])?,
             d_model: d,
         })
@@ -115,13 +115,13 @@ impl Decoder {
         let mut new = state.clone();
         for (l, layer) in self.lstm.iter().enumerate() {
             let (hp, cp) = (&state.h[l], &state.c[l]);
-            let gates: Vec<f32> = (0..4 * h)
-                .map(|g| {
-                    layer.b[g]
-                        + dot(&layer.w_ih[g * h..(g + 1) * h], &x)
-                        + dot(&layer.w_hh[g * h..(g + 1) * h], hp)
-                })
-                .collect();
+            let mut gates = vec![0f32; 4 * h];
+            let mut gh = vec![0f32; 4 * h];
+            gemv_f16(&x, h, &layer.w_ih, Some(&layer.b), 4 * h, &mut gates);
+            gemv_f16(hp, h, &layer.w_hh, None, 4 * h, &mut gh);
+            for (g, v) in gates.iter_mut().zip(&gh) {
+                *g += v;
+            }
             let (hn, cn) = (&mut new.h[l], &mut new.c[l]);
             for k in 0..h {
                 let i = sigmoid(gates[k]);
@@ -134,7 +134,7 @@ impl Decoder {
             x = hn.clone();
         }
         let mut g = vec![0f32; h];
-        linear(&x, 1, h, &self.proj_w, Some(&self.proj_b), h, &mut g);
+        gemv_f16(&x, h, &self.proj_w, Some(&self.proj_b), h, &mut g);
         (g, new)
     }
 
@@ -144,7 +144,7 @@ impl Decoder {
         let z: Vec<f32> = enc_t.iter().zip(g).map(|(a, b)| (a + b).max(0.0)).collect();
         let n = self.head_b.len();
         let mut out = vec![0f32; n];
-        linear(&z, 1, h, &self.head_w, Some(&self.head_b), n, &mut out);
+        gemv_f16(&z, h, &self.head_w, Some(&self.head_b), n, &mut out);
         out
     }
 

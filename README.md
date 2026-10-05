@@ -6,13 +6,14 @@
 
 ## Status (2026-10-05)
 - **Phase 0–1 done.** Python reference reproduces the card: LibriSpeech test-clean **WER 1.96** (leaderboard-exact scoring). Golden tensors dumped. See `PLAN.md`, `docs/decisions.md`.
-- **Phase 2 in progress.** Rust scalar fp32 core (`crates/prx-core`): frontend, subsampling, 24-layer FastConformer, TDT greedy decoder and detokeniser all match the golden set (encoder rel. error ≤ 7e-6, decoder emissions exact). `prx transcribe file.wav` works at ~8× real time on an M4 Max with dequantised f32 weights.
+- **Phase 2 done.** Rust core (`crates/prx-core`) matches the Python reference token for token on all of test-clean (WER 1.96).
+- **Phase 3 gate passed.** Native ternary kernels (NEON SDOT, int8 per-group activations): WER 1.95 on test-clean; **33.8× real time on dev50 on an M4 Max CPU** vs 28.2× sherpa-onnx int8, 18.1× onnx-asr int8, 13.3× parakeet.cpp q8_0 on the same machine (`bench/run_all.py`, `docs/kernels.md`).
 - Two findings worth sharing: the leaderboard's compound-merging alignment is worth 0.4 WER on this model, and HF's `ParakeetTokenizer.decode` collapses repeated tokens (a CTC habit that is wrong for TDT; +0.07 WER).
 
 ```sh
 cargo build --release
 ./target/release/prx inspect                      # validates models/parakeet-redux against ternary.json
-./target/release/prx transcribe golden/5694-64025-0000/audio.wav
+./target/release/prx transcribe golden/5694-64025-0000/audio.wav   # --precision int8 (default) | f32
 scripts/wer.sh dev50                              # Rust CLI over a manifest + leaderboard-exact WER
 cargo test --release --workspace                  # unit tests + golden parity tests (skip if golden/ or models/ absent)
 ```

@@ -25,3 +25,6 @@ results/*.jsonl
 golden/*/
 golden/vad/
 *.egg-info/
+bench/.venv/
+bench/models/
+bench/parakeet.cpp/
