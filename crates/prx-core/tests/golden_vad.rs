@@ -51,7 +51,7 @@ fn segmentation_rules() {
     let s = segment(&p, &SegmentConfig::default());
     assert_eq!(s.len(), 2, "{s:?}");
     assert!(
-        s[0].start == 0 && s[0].end == 126 && s[1].start == 137 && s[1].end == 201,
+        s[0].start == 0 && s[0].end == 127 && s[1].start == 136 && s[1].end == 201,
         "{s:?}"
     );
     let long = vec![0.95f32; 750];

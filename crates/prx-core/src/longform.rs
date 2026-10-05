@@ -17,6 +17,7 @@ pub struct LongForm<'a> {
     total: usize,    // absolute samples received
     pub segments: Vec<Segment>,
     pub emissions: Vec<Emission>,
+    pub max_pending: usize, // high-water mark of the audio buffer, samples (diagnostics)
 }
 
 impl<'a> LongForm<'a> {
@@ -33,6 +34,7 @@ impl<'a> LongForm<'a> {
             total: 0,
             segments: Vec::new(),
             emissions: Vec::new(),
+            max_pending: 0,
         }
     }
 
@@ -44,6 +46,7 @@ impl<'a> LongForm<'a> {
     pub fn push(&mut self, samples: &[f32]) -> Vec<Segment> {
         self.pending.extend_from_slice(samples);
         self.total += samples.len();
+        self.max_pending = self.max_pending.max(self.pending.len());
         while self.next_block + self.block_samples + self.ctx_samples <= self.total {
             self.probs
                 .extend(self.vad_block_at(self.next_block, self.next_block + self.block_samples));
@@ -54,6 +57,13 @@ impl<'a> LongForm<'a> {
 
     /// End of stream: VAD on the remaining partial block, close everything.
     pub fn flush(&mut self) -> Vec<Segment> {
+        if std::env::var_os("PRX_PROFILE").is_some() {
+            eprintln!(
+                "longform: max pending buffer {:.1} s, {} segments",
+                self.max_pending as f64 / 16000.0,
+                self.segments.len()
+            );
+        }
         while self.next_block < self.total {
             let end = (self.next_block + self.block_samples).min(self.total);
             if end - self.next_block >= self.spf() {

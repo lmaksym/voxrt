@@ -98,12 +98,13 @@ pub struct SegmentConfig {
 
 impl Default for SegmentConfig {
     fn default() -> Self {
+        // tuned on TED-LIUM 3 long-form (docs/vad.md): pause 640 ms, pad 160 ms, min 5 s, cap 30 s
         Self {
             threshold: 0.5,
-            min_pause_frames: 3,
+            min_pause_frames: 8,
             max_frames: 375,
-            min_frames: 12,
-            pad_frames: 1,
+            min_frames: 63,
+            pad_frames: 2,
         }
     }
 }
@@ -212,10 +213,26 @@ pub fn segment(p: &[f32], cfg: &SegmentConfig) -> Vec<Segment> {
             end: r.end,
         });
     }
-    // 4. pad with context frames where available
-    for seg in out.iter_mut() {
-        seg.start = seg.start.saturating_sub(cfg.pad_frames);
-        seg.end = (seg.end + cfg.pad_frames).min(t);
+    // 4. pad with context frames, never past the midpoint of the gap to a neighbour (no duplicated audio)
+    let n = out.len();
+    let bounds: Vec<(usize, usize)> = (0..n)
+        .map(|i| {
+            let lo = if i == 0 {
+                0
+            } else {
+                out[i - 1].end + (out[i].start - out[i - 1].end).div_ceil(2)
+            };
+            let hi = if i + 1 == n {
+                t
+            } else {
+                out[i].end + (out[i + 1].start - out[i].end) / 2
+            };
+            (lo, hi)
+        })
+        .collect();
+    for (seg, (lo, hi)) in out.iter_mut().zip(bounds) {
+        seg.start = seg.start.saturating_sub(cfg.pad_frames).max(lo);
+        seg.end = (seg.end + cfg.pad_frames).min(hi);
     }
     out
 }
