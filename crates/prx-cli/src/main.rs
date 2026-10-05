@@ -5,7 +5,7 @@ use prx_core::format::{default_model_dir, ModelFile};
 use prx_core::transcriber::Transcriber;
 
 fn usage() -> ! {
-    eprintln!("usage: prx <version|inspect [DIR]|transcribe FILE.wav [--model DIR]|batch MANIFEST.jsonl OUT.jsonl [--model DIR]|trace GOLDEN_UTT_DIR [--model DIR]>");
+    eprintln!("usage: prx <version|inspect [DIR]|transcribe FILE.wav [--format txt|srt|json] [--timestamps segment|word] [--model DIR] [--precision f32|int8]|batch MANIFEST.jsonl OUT.jsonl [--model DIR]|trace GOLDEN_UTT_DIR [--model DIR]>");
     std::process::exit(2)
 }
 
@@ -63,15 +63,73 @@ fn main() -> anyhow::Result<()> {
         }
         Some("transcribe") => {
             let file = args.get(2).unwrap_or_else(|| usage());
+            let opt = |k: &str| {
+                args.iter()
+                    .position(|a| a == k)
+                    .and_then(|i| args.get(i + 1))
+                    .map(String::as_str)
+            };
+            let format = opt("--format").unwrap_or("txt");
+            let ts = opt("--timestamps");
             let t0 = std::time::Instant::now();
             let tr = Transcriber::load_with(model_dir(&args), precision(&args))?;
             let load = t0.elapsed().as_secs_f32();
             let t1 = std::time::Instant::now();
             let a = prx_core::audio::read_wav(file)?;
-            let r = tr.transcribe_samples(&a.samples);
+            let r = tr.transcribe_long(&a.samples);
             let secs = t1.elapsed().as_secs_f32();
-            println!("{}", r.text);
-            eprintln!("{:?}/{:?} · load {load:.2}s · {:.2}s audio in {secs:.2}s ({:.1}× real time) · {} frames · {} tokens", tr.encoder.precision, prx_core::kernels::kernel(), a.samples.len() as f32 / 16000.0, a.samples.len() as f32 / 16000.0 / secs, r.n_frames, r.emissions.len());
+            match format {
+                "srt" => {
+                    let fmt = |t: f64| {
+                        format!(
+                            "{:02}:{:02}:{:02},{:03}",
+                            (t / 3600.0) as u64,
+                            ((t % 3600.0) / 60.0) as u64,
+                            (t % 60.0) as u64,
+                            ((t * 1000.0) % 1000.0) as u64
+                        )
+                    };
+                    for (i, s) in r.segments.iter().enumerate() {
+                        println!(
+                            "{}\n{} --> {}\n{}\n",
+                            i + 1,
+                            fmt(s.start),
+                            fmt(s.end),
+                            s.text
+                        );
+                    }
+                }
+                "json" => {
+                    let segs: Vec<serde_json::Value> = r.segments.iter().map(|s| {
+                        let mut v = serde_json::json!({"start": s.start, "end": s.end, "text": s.text});
+                        if ts == Some("word") {
+                            v["words"] = serde_json::Value::Array(s.words.iter().map(|w| serde_json::json!({"start": w.start, "end": w.end, "word": w.word})).collect());
+                        }
+                        v
+                    }).collect();
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(
+                            &serde_json::json!({"text": r.text, "segments": segs})
+                        )?
+                    );
+                }
+                _ => {
+                    if ts.is_some() {
+                        for s in &r.segments {
+                            println!("[{:7.2} → {:7.2}] {}", s.start, s.end, s.text);
+                            if ts == Some("word") {
+                                for w in &s.words {
+                                    println!("    {:7.2} {:7.2}  {}", w.start, w.end, w.word);
+                                }
+                            }
+                        }
+                    } else {
+                        println!("{}", r.text);
+                    }
+                }
+            }
+            eprintln!("{:?}/{:?} · load {load:.2}s · {:.2}s audio in {secs:.2}s ({:.1}× real time) · {} frames · {} tokens · {} segments", tr.encoder.precision, prx_core::kernels::kernel(), a.samples.len() as f32 / 16000.0, a.samples.len() as f32 / 16000.0 / secs, r.n_frames, r.emissions.len(), r.segments.len());
         }
         Some("batch") => {
             let (manifest, out) = (
@@ -109,7 +167,7 @@ fn main() -> anyhow::Result<()> {
                     .join(v["audio"].as_str().unwrap())
                     .with_extension("wav");
                 let a = prx_core::audio::read_wav(&wav)?;
-                let r = tr.transcribe_samples(&a.samples);
+                let r = tr.transcribe_long(&a.samples);
                 audio_s += a.samples.len() as f32 / 16000.0;
                 let em: Vec<[usize; 3]> = r
                     .emissions

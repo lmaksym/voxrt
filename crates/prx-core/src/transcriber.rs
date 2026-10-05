@@ -1,4 +1,4 @@
-//! End-to-end single-utterance transcription (PLAN 2.12).
+//! End-to-end transcription: single utterance (PLAN 2.12) and VAD-segmented long-form with timestamps (PLAN 4.2–4.4).
 use std::path::Path;
 
 use crate::decoder::{Decoder, Emission};
@@ -7,6 +7,7 @@ use crate::format::ModelFile;
 use crate::frontend::{Frontend, MelConfig};
 use crate::ternary_linear::Precision;
 use crate::tokenizer::Tokenizer;
+use crate::vad::{SegmentConfig, VadHead};
 use crate::Result;
 
 pub struct Transcriber {
@@ -14,13 +15,35 @@ pub struct Transcriber {
     pub encoder: Encoder,
     pub decoder: Decoder,
     pub tokenizer: Tokenizer,
+    pub vad: VadHead,
     pub frame_seconds: f64,
+    pub hop: usize,
+    pub subsampling_factor: usize,
+    /// Audio longer than this goes through VAD segmentation automatically.
+    pub long_form_threshold_s: f64,
+    pub segment_cfg: SegmentConfig,
+}
+
+#[derive(Debug, Clone)]
+pub struct Word {
+    pub start: f64,
+    pub end: f64,
+    pub word: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct Segment {
+    pub start: f64,
+    pub end: f64,
+    pub text: String,
+    pub words: Vec<Word>,
 }
 
 pub struct Transcript {
     pub text: String,
     pub emissions: Vec<Emission>,
     pub n_frames: usize,
+    pub segments: Vec<Segment>,
 }
 
 impl Transcriber {
@@ -36,17 +59,43 @@ impl Transcriber {
         });
         let encoder = Encoder::load_with(&m, precision)?;
         let decoder = Decoder::load(&m)?;
+        let vad = VadHead::load(&m)?;
         let tokenizer = Tokenizer::load(dir.as_ref().join("tokenizer.json"))?;
         Ok(Self {
             frontend,
             encoder,
             decoder,
             tokenizer,
+            vad,
             frame_seconds: m.ternary.vad_head.frame_seconds,
+            hop: 160,
+            subsampling_factor: m.config.encoder_config.subsampling_factor,
+            long_form_threshold_s: 30.0,
+            segment_cfg: SegmentConfig::from_env(),
         })
     }
 
+    /// Samples per encoder frame (hop × subsampling factor = 1280 → 80 ms).
+    pub fn samples_per_frame(&self) -> usize {
+        self.hop * self.subsampling_factor
+    }
+
+    /// One utterance, no segmentation. `offset_s` shifts timestamps.
     pub fn transcribe_samples(&self, samples: &[f32]) -> Transcript {
+        let (seg, emissions, te) = self.transcribe_one(samples, 0.0);
+        Transcript {
+            text: seg.text.clone(),
+            emissions,
+            n_frames: te,
+            segments: vec![seg],
+        }
+    }
+
+    pub(crate) fn transcribe_one(
+        &self,
+        samples: &[f32],
+        offset_s: f64,
+    ) -> (Segment, Vec<Emission>, usize) {
         let profiling = std::env::var_os("PRX_PROFILE").is_some();
         let t0 = std::time::Instant::now();
         let (feats, t) = self.frontend.compute(samples);
@@ -65,15 +114,82 @@ impl Transcriber {
             );
         }
         let ids: Vec<usize> = emissions.iter().map(|e| e.token).collect();
-        Transcript {
-            text: self.tokenizer.decode(&ids),
+        let text = self.tokenizer.decode(&ids);
+        let end_s = offset_s + te as f64 * self.frame_seconds;
+        let words = self.words(&emissions, offset_s, end_s);
+        (
+            Segment {
+                start: offset_s,
+                end: end_s,
+                text,
+                words,
+            },
             emissions,
-            n_frames: te,
+            te,
+        )
+    }
+
+    /// Word timestamps from emission frames: a word starts at its first piece's frame; it ends where the next word starts
+    /// (or at the segment end). Pieces group into words at `▁`.
+    fn words(&self, emissions: &[Emission], offset_s: f64, end_s: f64) -> Vec<Word> {
+        let mut words: Vec<Word> = Vec::new();
+        let mut cur_ids: Vec<usize> = Vec::new();
+        let mut cur_start = 0f64;
+        let flush = |ids: &mut Vec<usize>, start: f64, words: &mut Vec<Word>, tok: &Tokenizer| {
+            if !ids.is_empty() {
+                let w = tok.decode(ids);
+                if !w.is_empty() {
+                    words.push(Word {
+                        start,
+                        end: start,
+                        word: w,
+                    });
+                }
+                ids.clear();
+            }
+        };
+        for e in emissions {
+            let piece = self.tokenizer.piece(e.token).unwrap_or("");
+            let starts_word = piece.starts_with('\u{2581}');
+            if starts_word {
+                flush(&mut cur_ids, cur_start, &mut words, &self.tokenizer);
+                cur_start = offset_s + e.frame as f64 * self.frame_seconds;
+            } else if cur_ids.is_empty() {
+                cur_start = offset_s + e.frame as f64 * self.frame_seconds;
+            }
+            cur_ids.push(e.token);
+        }
+        flush(&mut cur_ids, cur_start, &mut words, &self.tokenizer);
+        let n = words.len();
+        for i in 0..n {
+            words[i].end = if i + 1 < n { words[i + 1].start } else { end_s };
+        }
+        words
+    }
+
+    /// VAD-segmented long-form transcription through the streaming state machine (`longform::LongForm`), fed in
+    /// 10 s chunks so the result is identical to a live stream. Short inputs (≤ threshold) take the single-utterance path.
+    pub fn transcribe_long(&self, samples: &[f32]) -> Transcript {
+        let secs = samples.len() as f64 / 16000.0;
+        if secs <= self.long_form_threshold_s {
+            return self.transcribe_samples(samples);
+        }
+        let mut lf = crate::longform::LongForm::new(self);
+        for chunk in samples.chunks(10 * 16_000) {
+            lf.push(chunk);
+        }
+        lf.flush();
+        let n_frames = samples.len() / self.samples_per_frame();
+        Transcript {
+            text: lf.text(),
+            emissions: lf.emissions,
+            n_frames,
+            segments: lf.segments,
         }
     }
 
     pub fn transcribe_wav(&self, path: impl AsRef<Path>) -> Result<Transcript> {
         let a = crate::audio::read_wav(path)?;
-        Ok(self.transcribe_samples(&a.samples))
+        Ok(self.transcribe_long(&a.samples))
     }
 }
