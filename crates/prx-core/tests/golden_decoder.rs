@@ -8,6 +8,7 @@ fn decoder_matches_golden_from_golden_encoder_output() {
     if !have_golden() || !default_model_dir().join("model.safetensors").exists() {
         return;
     }
+    std::env::set_var("PRX_DECODER", "f16"); // exactness test: the int8 decoder is validated on the token oracle instead
     let m = ModelFile::open(default_model_dir()).unwrap();
     let dec = Decoder::load(&m).unwrap();
     for id in golden_ids() {

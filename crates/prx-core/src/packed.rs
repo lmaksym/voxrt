@@ -76,6 +76,41 @@ impl TernaryMatrix {
         }
     }
 
+    /// Build from arbitrary int8 rows `[out, inp]` (not necessarily ternary) with scales `[out, inp/group]`.
+    pub fn from_i8_rows(
+        rows: &[i8],
+        scales: &[f32],
+        out: usize,
+        inp: usize,
+        group: usize,
+        layout: Layout,
+    ) -> Self {
+        assert_eq!(rows.len(), out * inp);
+        assert_eq!(scales.len(), out * (inp / group));
+        let mut w = vec![0i8; out * inp];
+        for r in 0..out {
+            let row = &rows[r * inp..(r + 1) * inp];
+            match layout {
+                Layout::Rows => w[r * inp..(r + 1) * inp].copy_from_slice(row),
+                Layout::Pairs => {
+                    let (rp, half) = (r / 2, r % 2);
+                    for (sl, chunk) in row.chunks_exact(8).enumerate() {
+                        let o = (rp * (inp / 8) + sl) * 16 + half * 8;
+                        w[o..o + 8].copy_from_slice(chunk);
+                    }
+                }
+            }
+        }
+        Self {
+            out,
+            inp,
+            group,
+            layout,
+            w,
+            scales: scales.to_vec(),
+        }
+    }
+
     /// Element access independent of layout (reference paths only).
     #[inline]
     pub fn get(&self, r: usize, k: usize) -> i8 {

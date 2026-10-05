@@ -1,16 +1,10 @@
-//! dw-striding Conv2d subsampling, 8× in time (PLAN 2.6). HF `ParakeetEncoderSubsamplingConv2D`.
+//! dw-striding Conv2d subsampling, 8× in time (PLAN 2.6, 3c.6). HF `ParakeetEncoderSubsamplingConv2D`.
 //!
-//! Input `[T, F]` (time × mel) as one channel; output `[T/8, d_model]`.
+//! Channels-last layout `[T, F, C]` throughout: the 3×3 stride-2 convs vectorise over the channel axis and the
+//! 1×1 pointwise convs become plain GEMMs on the f32 NEON tile. Input `[T, F]` (time × mel); output `[T/8, d_model]`.
 use crate::format::ModelFile;
-use crate::tensor::{linear, load_f32_shaped};
+use crate::tensor::{linear, load_f32_shaped, par_rows};
 use crate::Result;
-
-pub struct Conv2dDense {
-    pub w: Vec<f32>, // [out, in, k, k]
-    pub b: Vec<f32>,
-    pub out_c: usize,
-    pub in_c: usize,
-}
 
 pub struct Subsampling {
     pub channels: usize,
@@ -18,12 +12,13 @@ pub struct Subsampling {
     pub stride: usize,
     pub n_mels: usize,
     pub d_model: usize,
-    conv0: Conv2dDense, // 1 → C, k3 s2 p1
-    dw: [Vec<f32>; 2],  // depthwise [C,1,3,3]
+    conv0_w: Vec<f32>, // [k*k, C]  (tap-major, channel-minor)
+    conv0_b: Vec<f32>,
+    dw_w: [Vec<f32>; 2], // [k*k, C]
     dw_b: [Vec<f32>; 2],
-    pw: [Vec<f32>; 2], // pointwise [C,C,1,1]
+    pw_w: [Vec<f32>; 2], // [C_out, C_in] for `linear`
     pw_b: [Vec<f32>; 2],
-    lin_w: Vec<f32>, // [d_model, C * F_out]
+    lin_w: Vec<f32>, // [d_model, F3*C] with columns permuted to channels-last order (f*C + c)
     lin_b: Vec<f32>,
 }
 
@@ -42,33 +37,46 @@ impl Subsampling {
         );
         let f_out = e.num_mel_bins / e.subsampling_factor;
         let p = "encoder.subsampling.layers";
-        let conv0 = Conv2dDense {
-            w: load_f32_shaped(m, &format!("{p}.0.weight"), &[c, 1, k, k])?,
-            b: load_f32_shaped(m, &format!("{p}.0.bias"), &[c])?,
-            out_c: c,
-            in_c: 1,
-        };
-        let dw = [
-            load_f32_shaped(m, &format!("{p}.2.weight"), &[c, 1, k, k])?,
-            load_f32_shaped(m, &format!("{p}.5.weight"), &[c, 1, k, k])?,
-        ];
-        let dw_b = [
-            load_f32_shaped(m, &format!("{p}.2.bias"), &[c])?,
-            load_f32_shaped(m, &format!("{p}.5.bias"), &[c])?,
-        ];
-        let pw = [
-            load_f32_shaped(m, &format!("{p}.3.weight"), &[c, c, 1, 1])?,
-            load_f32_shaped(m, &format!("{p}.6.weight"), &[c, c, 1, 1])?,
-        ];
-        let pw_b = [
-            load_f32_shaped(m, &format!("{p}.3.bias"), &[c])?,
-            load_f32_shaped(m, &format!("{p}.6.bias"), &[c])?,
-        ];
-        let lin_w = load_f32_shaped(
+        // conv0 [C,1,k,k] → [k*k, C]
+        let w0 = load_f32_shaped(m, &format!("{p}.0.weight"), &[c, 1, k, k])?;
+        let mut conv0_w = vec![0f32; k * k * c];
+        for ch in 0..c {
+            for tap in 0..k * k {
+                conv0_w[tap * c + ch] = w0[ch * k * k + tap];
+            }
+        }
+        let conv0_b = load_f32_shaped(m, &format!("{p}.0.bias"), &[c])?;
+        let mut dw_w: [Vec<f32>; 2] = [Vec::new(), Vec::new()];
+        let mut dw_b: [Vec<f32>; 2] = [Vec::new(), Vec::new()];
+        let mut pw_w: [Vec<f32>; 2] = [Vec::new(), Vec::new()];
+        let mut pw_b: [Vec<f32>; 2] = [Vec::new(), Vec::new()];
+        for (si, (dwi, pwi)) in [(2usize, 3usize), (5, 6)].into_iter().enumerate() {
+            let w = load_f32_shaped(m, &format!("{p}.{dwi}.weight"), &[c, 1, k, k])?;
+            let mut t = vec![0f32; k * k * c];
+            for ch in 0..c {
+                for tap in 0..k * k {
+                    t[tap * c + ch] = w[ch * k * k + tap];
+                }
+            }
+            dw_w[si] = t;
+            dw_b[si] = load_f32_shaped(m, &format!("{p}.{dwi}.bias"), &[c])?;
+            pw_w[si] = load_f32_shaped(m, &format!("{p}.{pwi}.weight"), &[c, c, 1, 1])?; // [out, in]
+            pw_b[si] = load_f32_shaped(m, &format!("{p}.{pwi}.bias"), &[c])?;
+        }
+        // final linear expects HF flatten order c*F3 + f; permute its columns to channels-last f*C + c
+        let lw = load_f32_shaped(
             m,
             "encoder.subsampling.linear.weight",
             &[e.hidden_size, c * f_out],
         )?;
+        let mut lin_w = vec![0f32; e.hidden_size * c * f_out];
+        for o in 0..e.hidden_size {
+            for ch in 0..c {
+                for f in 0..f_out {
+                    lin_w[o * c * f_out + f * c + ch] = lw[o * c * f_out + ch * f_out + f];
+                }
+            }
+        }
         let lin_b = load_f32_shaped(m, "encoder.subsampling.linear.bias", &[e.hidden_size])?;
         Ok(Self {
             channels: c,
@@ -76,10 +84,11 @@ impl Subsampling {
             stride: s,
             n_mels: e.num_mel_bins,
             d_model: e.hidden_size,
-            conv0,
-            dw,
+            conv0_w,
+            conv0_b,
+            dw_w,
             dw_b,
-            pw,
+            pw_w,
             pw_b,
             lin_w,
             lin_b,
@@ -100,116 +109,90 @@ impl Subsampling {
     pub fn forward(&self, feats: &[f32], t: usize) -> Vec<f32> {
         let (c, k, s) = (self.channels, self.kernel, self.stride);
         let p = (k - 1) / 2;
-        // stage 0: full conv 1 → C over (T, F), ReLU. Layout [C, T, F].
+        // stage 0: 1 → C channels over (T, F), ReLU; output [t1, f1, C]
         let (t1, f1) = (out_len(t, k, s, p), out_len(self.n_mels, k, s, p));
-        let mut x = vec![0f32; c * t1 * f1];
-        use rayon::prelude::*;
-        let per = 4usize;
+        let mut x = vec![0f32; t1 * f1 * c];
         {
-            let conv0 = &self.conv0;
-            x.par_chunks_mut(per * t1 * f1)
-                .enumerate()
-                .for_each(|(blk, xo)| {
-                    for (li, xo_c) in xo.chunks_exact_mut(t1 * f1).enumerate() {
-                        let oc = blk * per + li;
-                        let w = &conv0.w[oc * k * k..(oc + 1) * k * k];
-                        let b = conv0.b[oc];
-                        for ot in 0..t1 {
-                            for of in 0..f1 {
-                                let mut acc = b;
-                                for kt in 0..k {
-                                    let it = (ot * s + kt) as isize - p as isize;
-                                    if it < 0 || it >= t as isize {
-                                        continue;
-                                    }
-                                    for kf in 0..k {
-                                        let i_f = (of * s + kf) as isize - p as isize;
-                                        if i_f < 0 || i_f >= self.n_mels as isize {
-                                            continue;
-                                        }
-                                        acc += w[kt * k + kf]
-                                            * feats[it as usize * self.n_mels + i_f as usize];
-                                    }
-                                }
-                                xo_c[ot * f1 + of] = acc.max(0.0);
+            let (w, b, nm) = (&self.conv0_w, &self.conv0_b, self.n_mels);
+            par_rows(&mut x, f1 * c, |ot, row| {
+                for of in 0..f1 {
+                    let o = &mut row[of * c..(of + 1) * c];
+                    o.copy_from_slice(b);
+                    for kt in 0..k {
+                        let it = (ot * s + kt) as isize - p as isize;
+                        if it < 0 || it >= t as isize {
+                            continue;
+                        }
+                        for kf in 0..k {
+                            let i_f = (of * s + kf) as isize - p as isize;
+                            if i_f < 0 || i_f >= nm as isize {
+                                continue;
+                            }
+                            let v = feats[it as usize * nm + i_f as usize];
+                            let wt = &w[(kt * k + kf) * c..(kt * k + kf + 1) * c];
+                            for ch in 0..c {
+                                o[ch] += wt[ch] * v;
                             }
                         }
                     }
-                });
+                    o.iter_mut().for_each(|v| *v = v.max(0.0));
+                }
+            });
         }
         let (mut tc, mut fc) = (t1, f1);
         for stage in 0..2 {
-            // depthwise k3 s2 p1 per channel (no activation), then pointwise 1×1 across channels, ReLU
+            // depthwise 3×3 stride 2 (no activation): [t2, f2, C], vectorised over channels
             let (t2, f2) = (out_len(tc, k, s, p), out_len(fc, k, s, p));
-            let mut y = vec![0f32; c * t2 * f2];
-            let (dw, dw_b, xin_all) = (&self.dw[stage], &self.dw_b[stage], &x);
-            y.par_chunks_mut(per * t2 * f2)
-                .enumerate()
-                .for_each(|(blk, yo)| {
-                    for (li, yo_c) in yo.chunks_exact_mut(t2 * f2).enumerate() {
-                        let ch = blk * per + li;
-                        let w = &dw[ch * k * k..(ch + 1) * k * k];
-                        let b = dw_b[ch];
-                        let xin = &xin_all[ch * tc * fc..(ch + 1) * tc * fc];
-                        for ot in 0..t2 {
-                            for of in 0..f2 {
-                                let mut acc = b;
-                                for kt in 0..k {
-                                    let it = (ot * s + kt) as isize - p as isize;
-                                    if it < 0 || it >= tc as isize {
-                                        continue;
-                                    }
-                                    for kf in 0..k {
-                                        let i_f = (of * s + kf) as isize - p as isize;
-                                        if i_f < 0 || i_f >= fc as isize {
-                                            continue;
-                                        }
-                                        acc +=
-                                            w[kt * k + kf] * xin[it as usize * fc + i_f as usize];
-                                    }
+            let mut y = vec![0f32; t2 * f2 * c];
+            {
+                let (w, b, xin) = (&self.dw_w[stage], &self.dw_b[stage], &x);
+                par_rows(&mut y, f2 * c, |ot, row| {
+                    for of in 0..f2 {
+                        let o = &mut row[of * c..(of + 1) * c];
+                        o.copy_from_slice(b);
+                        for kt in 0..k {
+                            let it = (ot * s + kt) as isize - p as isize;
+                            if it < 0 || it >= tc as isize {
+                                continue;
+                            }
+                            for kf in 0..k {
+                                let i_f = (of * s + kf) as isize - p as isize;
+                                if i_f < 0 || i_f >= fc as isize {
+                                    continue;
                                 }
-                                yo_c[ot * f2 + of] = acc;
+                                let xi = &xin[(it as usize * fc + i_f as usize) * c
+                                    ..(it as usize * fc + i_f as usize + 1) * c];
+                                let wt = &w[(kt * k + kf) * c..(kt * k + kf + 1) * c];
+                                for ch in 0..c {
+                                    o[ch] += wt[ch] * xi[ch];
+                                }
                             }
                         }
                     }
                 });
-            // pointwise: z[oc, pos] = b[oc] + Σ_ic w[oc, ic] y[ic, pos]; ReLU — parallel over output channels
+            }
+            // pointwise 1×1 as a GEMM over positions, then ReLU
             let n_pos = t2 * f2;
-            let mut z = vec![0f32; c * n_pos];
-            let (w, pw_b, y) = (&self.pw[stage], &self.pw_b[stage], &y);
-            z.par_chunks_mut(per * n_pos)
-                .enumerate()
-                .for_each(|(blk, zo_all)| {
-                    for (li, zo) in zo_all.chunks_exact_mut(n_pos).enumerate() {
-                        let oc = blk * per + li;
-                        zo.iter_mut().for_each(|v| *v = pw_b[oc]);
-                        for ic in 0..c {
-                            let wv = w[oc * c + ic];
-                            let yi = &y[ic * n_pos..(ic + 1) * n_pos];
-                            for (zv, yv) in zo.iter_mut().zip(yi) {
-                                *zv += wv * yv;
-                            }
-                        }
-                        zo.iter_mut().for_each(|v| *v = v.max(0.0));
-                    }
-                });
+            let mut z = vec![0f32; n_pos * c];
+            linear(
+                &y,
+                n_pos,
+                c,
+                &self.pw_w[stage],
+                Some(&self.pw_b[stage]),
+                c,
+                &mut z,
+            );
+            z.iter_mut().for_each(|v| *v = v.max(0.0));
             x = z;
             tc = t2;
             fc = f2;
         }
-        // flatten per time step: index = ch * fc + f  (HF: transpose(1,2).reshape(B, T, C*F))
-        let flat_in = c * fc;
-        let mut flat = vec![0f32; tc * flat_in];
-        for ch in 0..c {
-            for ot in 0..tc {
-                for of in 0..fc {
-                    flat[ot * flat_in + ch * fc + of] = x[(ch * tc + ot) * fc + of];
-                }
-            }
-        }
+        // [t3, f3*C] is already the channels-last flatten; the linear's columns were permuted to match
+        let flat_in = fc * c;
         let mut out = vec![0f32; tc * self.d_model];
         linear(
-            &flat,
+            &x,
             tc,
             flat_in,
             &self.lin_w,

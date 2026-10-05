@@ -131,6 +131,24 @@ fn gemm_rows(
     }
 }
 
+/// Single-threaded `y[n, out]` = quantised `x` × `w`ᵀ (+ bias), for per-step decoder work where dispatch would dominate.
+pub fn gemm_single(w: &TernaryMatrix, x: &QuantAct, y: &mut [f32], bias: Option<&[f32]>) {
+    let k = match (kernel(), w.layout, x.layout) {
+        (Kernel::NeonI8mm, Layout::Pairs, Layout::Pairs) => Kernel::NeonI8mm,
+        (Kernel::NeonI8mm, Layout::Rows, Layout::Rows)
+        | (Kernel::NeonDotprod, Layout::Rows, Layout::Rows) => Kernel::NeonDotprod,
+        _ => Kernel::Scalar,
+    };
+    gemm_rows(k, w, x, y, 0, w.out, Epilogue::Store);
+    if let Some(b) = bias {
+        for t in 0..x.n {
+            for (o, v) in y[t * w.out..(t + 1) * w.out].iter_mut().enumerate() {
+                *v += b[o];
+            }
+        }
+    }
+}
+
 /// `y[n, out]` = quantised `x` × `w`ᵀ, parallel over output-row blocks (rayon pool). `bias` optional.
 pub fn gemm(w: &TernaryMatrix, x: &QuantAct, y: &mut [f32], bias: Option<&[f32]>) {
     gemm_ep(w, x, y, bias, Epilogue::Store)
