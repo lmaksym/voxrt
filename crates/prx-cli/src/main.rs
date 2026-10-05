@@ -9,6 +9,19 @@ fn usage() -> ! {
     std::process::exit(2)
 }
 
+fn precision(args: &[String]) -> prx_core::ternary_linear::Precision {
+    match args
+        .iter()
+        .position(|a| a == "--precision")
+        .and_then(|i| args.get(i + 1))
+        .map(String::as_str)
+    {
+        Some("f32") => prx_core::ternary_linear::Precision::F32,
+        Some("int8") => prx_core::ternary_linear::Precision::Int8,
+        _ => prx_core::ternary_linear::Precision::from_env(),
+    }
+}
+
 fn model_dir(args: &[String]) -> PathBuf {
     args.iter()
         .position(|a| a == "--model")
@@ -51,21 +64,21 @@ fn main() -> anyhow::Result<()> {
         Some("transcribe") => {
             let file = args.get(2).unwrap_or_else(|| usage());
             let t0 = std::time::Instant::now();
-            let tr = Transcriber::load(model_dir(&args))?;
+            let tr = Transcriber::load_with(model_dir(&args), precision(&args))?;
             let load = t0.elapsed().as_secs_f32();
             let t1 = std::time::Instant::now();
             let a = prx_core::audio::read_wav(file)?;
             let r = tr.transcribe_samples(&a.samples);
             let secs = t1.elapsed().as_secs_f32();
             println!("{}", r.text);
-            eprintln!("load {load:.2}s · {:.2}s audio in {secs:.2}s ({:.1}× real time) · {} frames · {} tokens", a.samples.len() as f32 / 16000.0, a.samples.len() as f32 / 16000.0 / secs, r.n_frames, r.emissions.len());
+            eprintln!("{:?}/{:?} · load {load:.2}s · {:.2}s audio in {secs:.2}s ({:.1}× real time) · {} frames · {} tokens", tr.encoder.precision, prx_core::kernels::kernel(), a.samples.len() as f32 / 16000.0, a.samples.len() as f32 / 16000.0 / secs, r.n_frames, r.emissions.len());
         }
         Some("batch") => {
             let (manifest, out) = (
                 args.get(2).unwrap_or_else(|| usage()),
                 args.get(3).unwrap_or_else(|| usage()),
             );
-            let tr = Transcriber::load(model_dir(&args))?;
+            let tr = Transcriber::load_with(model_dir(&args), precision(&args))?;
             let root = PathBuf::from(manifest)
                 .parent()
                 .and_then(|p| p.parent())
@@ -125,7 +138,7 @@ fn main() -> anyhow::Result<()> {
         Some("trace") => {
             // per-stage error table against one golden utterance directory (docs/golden.md)
             let gdir = PathBuf::from(args.get(2).unwrap_or_else(|| usage()));
-            let tr = Transcriber::load(model_dir(&args))?;
+            let tr = Transcriber::load_with(model_dir(&args), precision(&args))?;
             let a = prx_core::audio::read_wav(gdir.join("audio.wav"))?;
             let (feats, t) = tr.frontend.compute(&a.samples);
             let mut outs = Vec::new();

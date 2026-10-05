@@ -57,7 +57,8 @@ pub fn dot(a: &[f32], b: &[f32]) -> f32 {
     s
 }
 
-/// `y[n, out] = x[n, in] · W[out, in]^T + b[out]`, parallel over rows of `x`.
+/// `y[n, out] = x[n, in] · W[out, in]^T + b[out]`. Parallel over output columns (rayon pool) when the work is
+/// large enough; single-threaded for tiny calls (decoder steps).
 pub fn linear(
     x: &[f32],
     n: usize,
@@ -67,22 +68,35 @@ pub fn linear(
     out_f: usize,
     y: &mut [f32],
 ) {
+    use rayon::prelude::*;
     debug_assert_eq!(x.len(), n * in_f);
     debug_assert_eq!(w.len(), out_f * in_f);
     debug_assert_eq!(y.len(), n * out_f);
-    let nt = threads().min(n.max(1));
-    let chunk = n.div_ceil(nt).max(1);
-    std::thread::scope(|s| {
-        for (xi, yi) in x.chunks(chunk * in_f).zip(y.chunks_mut(chunk * out_f)) {
-            s.spawn(move || {
-                for (row, yrow) in xi.chunks_exact(in_f).zip(yi.chunks_exact_mut(out_f)) {
-                    for (o, yo) in yrow.iter_mut().enumerate() {
-                        *yo = dot(row, &w[o * in_f..(o + 1) * in_f]) + b.map_or(0.0, |b| b[o]);
-                    }
-                }
-            });
+    let row = |xi: &[f32], yrow: &mut [f32], o0: usize| {
+        for (o, yo) in yrow.iter_mut().enumerate() {
+            let oo = o0 + o;
+            *yo = dot(xi, &w[oo * in_f..(oo + 1) * in_f]) + b.map_or(0.0, |b| b[oo]);
         }
-    });
+    };
+    if n * out_f * in_f < 1 << 20 {
+        for (xi, yrow) in x.chunks_exact(in_f).zip(y.chunks_exact_mut(out_f)) {
+            row(xi, yrow, 0);
+        }
+        return;
+    }
+    if n >= 8 {
+        y.par_chunks_mut(out_f)
+            .zip(x.par_chunks(in_f))
+            .for_each(|(yrow, xi)| row(xi, yrow, 0));
+    } else {
+        // few tokens: split the output columns instead
+        let cols = out_f.div_ceil(threads()).max(16);
+        for (xi, yrow) in x.chunks_exact(in_f).zip(y.chunks_exact_mut(out_f)) {
+            yrow.par_chunks_mut(cols)
+                .enumerate()
+                .for_each(|(ci, yc)| row(xi, yc, ci * cols));
+        }
+    }
 }
 
 /// LayerNorm over the last dim, eps 1e-5 (nn.LayerNorm default), biased variance.

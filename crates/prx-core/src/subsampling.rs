@@ -103,74 +103,96 @@ impl Subsampling {
         // stage 0: full conv 1 → C over (T, F), ReLU. Layout [C, T, F].
         let (t1, f1) = (out_len(t, k, s, p), out_len(self.n_mels, k, s, p));
         let mut x = vec![0f32; c * t1 * f1];
-        for oc in 0..c {
-            let w = &self.conv0.w[oc * k * k..(oc + 1) * k * k];
-            let b = self.conv0.b[oc];
-            for ot in 0..t1 {
-                for of in 0..f1 {
-                    let mut acc = b;
-                    for kt in 0..k {
-                        let it = (ot * s + kt) as isize - p as isize;
-                        if it < 0 || it >= t as isize {
-                            continue;
-                        }
-                        for kf in 0..k {
-                            let i_f = (of * s + kf) as isize - p as isize;
-                            if i_f < 0 || i_f >= self.n_mels as isize {
-                                continue;
+        use rayon::prelude::*;
+        let per = 4usize;
+        {
+            let conv0 = &self.conv0;
+            x.par_chunks_mut(per * t1 * f1)
+                .enumerate()
+                .for_each(|(blk, xo)| {
+                    for (li, xo_c) in xo.chunks_exact_mut(t1 * f1).enumerate() {
+                        let oc = blk * per + li;
+                        let w = &conv0.w[oc * k * k..(oc + 1) * k * k];
+                        let b = conv0.b[oc];
+                        for ot in 0..t1 {
+                            for of in 0..f1 {
+                                let mut acc = b;
+                                for kt in 0..k {
+                                    let it = (ot * s + kt) as isize - p as isize;
+                                    if it < 0 || it >= t as isize {
+                                        continue;
+                                    }
+                                    for kf in 0..k {
+                                        let i_f = (of * s + kf) as isize - p as isize;
+                                        if i_f < 0 || i_f >= self.n_mels as isize {
+                                            continue;
+                                        }
+                                        acc += w[kt * k + kf]
+                                            * feats[it as usize * self.n_mels + i_f as usize];
+                                    }
+                                }
+                                xo_c[ot * f1 + of] = acc.max(0.0);
                             }
-                            acc += w[kt * k + kf] * feats[it as usize * self.n_mels + i_f as usize];
                         }
                     }
-                    x[(oc * t1 + ot) * f1 + of] = acc.max(0.0);
-                }
-            }
+                });
         }
         let (mut tc, mut fc) = (t1, f1);
         for stage in 0..2 {
             // depthwise k3 s2 p1 per channel (no activation), then pointwise 1×1 across channels, ReLU
             let (t2, f2) = (out_len(tc, k, s, p), out_len(fc, k, s, p));
             let mut y = vec![0f32; c * t2 * f2];
-            for ch in 0..c {
-                let w = &self.dw[stage][ch * k * k..(ch + 1) * k * k];
-                let b = self.dw_b[stage][ch];
-                let xin = &x[ch * tc * fc..(ch + 1) * tc * fc];
-                for ot in 0..t2 {
-                    for of in 0..f2 {
-                        let mut acc = b;
-                        for kt in 0..k {
-                            let it = (ot * s + kt) as isize - p as isize;
-                            if it < 0 || it >= tc as isize {
-                                continue;
-                            }
-                            for kf in 0..k {
-                                let i_f = (of * s + kf) as isize - p as isize;
-                                if i_f < 0 || i_f >= fc as isize {
-                                    continue;
+            let (dw, dw_b, xin_all) = (&self.dw[stage], &self.dw_b[stage], &x);
+            y.par_chunks_mut(per * t2 * f2)
+                .enumerate()
+                .for_each(|(blk, yo)| {
+                    for (li, yo_c) in yo.chunks_exact_mut(t2 * f2).enumerate() {
+                        let ch = blk * per + li;
+                        let w = &dw[ch * k * k..(ch + 1) * k * k];
+                        let b = dw_b[ch];
+                        let xin = &xin_all[ch * tc * fc..(ch + 1) * tc * fc];
+                        for ot in 0..t2 {
+                            for of in 0..f2 {
+                                let mut acc = b;
+                                for kt in 0..k {
+                                    let it = (ot * s + kt) as isize - p as isize;
+                                    if it < 0 || it >= tc as isize {
+                                        continue;
+                                    }
+                                    for kf in 0..k {
+                                        let i_f = (of * s + kf) as isize - p as isize;
+                                        if i_f < 0 || i_f >= fc as isize {
+                                            continue;
+                                        }
+                                        acc +=
+                                            w[kt * k + kf] * xin[it as usize * fc + i_f as usize];
+                                    }
                                 }
-                                acc += w[kt * k + kf] * xin[it as usize * fc + i_f as usize];
+                                yo_c[ot * f2 + of] = acc;
                             }
                         }
-                        y[(ch * t2 + ot) * f2 + of] = acc;
                     }
-                }
-            }
-            // pointwise: z[oc, pos] = b[oc] + Σ_ic w[oc, ic] y[ic, pos]; ReLU
+                });
+            // pointwise: z[oc, pos] = b[oc] + Σ_ic w[oc, ic] y[ic, pos]; ReLU — parallel over output channels
             let n_pos = t2 * f2;
             let mut z = vec![0f32; c * n_pos];
-            let w = &self.pw[stage];
-            for oc in 0..c {
-                let zo = &mut z[oc * n_pos..(oc + 1) * n_pos];
-                zo.iter_mut().for_each(|v| *v = self.pw_b[stage][oc]);
-                for ic in 0..c {
-                    let wv = w[oc * c + ic];
-                    let yi = &y[ic * n_pos..(ic + 1) * n_pos];
-                    for (zv, yv) in zo.iter_mut().zip(yi) {
-                        *zv += wv * yv;
+            let (w, pw_b, y) = (&self.pw[stage], &self.pw_b[stage], &y);
+            z.par_chunks_mut(per * n_pos)
+                .enumerate()
+                .for_each(|(blk, zo_all)| {
+                    for (li, zo) in zo_all.chunks_exact_mut(n_pos).enumerate() {
+                        let oc = blk * per + li;
+                        zo.iter_mut().for_each(|v| *v = pw_b[oc]);
+                        for ic in 0..c {
+                            let wv = w[oc * c + ic];
+                            let yi = &y[ic * n_pos..(ic + 1) * n_pos];
+                            for (zv, yv) in zo.iter_mut().zip(yi) {
+                                *zv += wv * yv;
+                            }
+                        }
+                        zo.iter_mut().for_each(|v| *v = v.max(0.0));
                     }
-                }
-                zo.iter_mut().for_each(|v| *v = v.max(0.0));
-            }
+                });
             x = z;
             tc = t2;
             fc = f2;

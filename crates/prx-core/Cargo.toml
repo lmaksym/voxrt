@@ -13,7 +13,13 @@ safetensors = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 realfft = { workspace = true }
+rayon = { workspace = true }
 thiserror = { workspace = true }
 
 [dev-dependencies]
 anyhow = { workspace = true }
+criterion = { workspace = true }
+
+[[bench]]
+name = "matmul"
+harness = false

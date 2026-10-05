@@ -5,6 +5,7 @@ use crate::decoder::{Decoder, Emission};
 use crate::encoder::Encoder;
 use crate::format::ModelFile;
 use crate::frontend::{Frontend, MelConfig};
+use crate::ternary_linear::Precision;
 use crate::tokenizer::Tokenizer;
 use crate::Result;
 
@@ -24,12 +25,16 @@ pub struct Transcript {
 
 impl Transcriber {
     pub fn load(dir: impl AsRef<Path>) -> Result<Self> {
+        Self::load_with(dir, Precision::from_env())
+    }
+
+    pub fn load_with(dir: impl AsRef<Path>, precision: Precision) -> Result<Self> {
         let m = ModelFile::open(&dir)?;
         let frontend = Frontend::new(MelConfig {
             n_mels: m.config.encoder_config.num_mel_bins,
             ..MelConfig::default()
         });
-        let encoder = Encoder::load(&m)?;
+        let encoder = Encoder::load_with(&m, precision)?;
         let decoder = Decoder::load(&m)?;
         let tokenizer = Tokenizer::load(dir.as_ref().join("tokenizer.json"))?;
         Ok(Self {
