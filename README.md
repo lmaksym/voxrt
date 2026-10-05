@@ -7,7 +7,7 @@
 ## Status (2026-10-05)
 - **Phase 0–1 done.** Python reference reproduces the card: LibriSpeech test-clean **WER 1.96** (leaderboard-exact scoring). Golden tensors dumped. See `PLAN.md`, `docs/decisions.md`.
 - **Phase 2 done.** Rust core (`crates/prx-core`) matches the Python reference token for token on all of test-clean (WER 1.96).
-- **Phase 3 gate passed.** Native ternary kernels (NEON SDOT, int8 per-group activations): WER 1.95 on test-clean; **33.8× real time on dev50 on an M4 Max CPU** vs 28.2× sherpa-onnx int8, 18.1× onnx-asr int8, 13.3× parakeet.cpp q8_0 on the same machine (`bench/run_all.py`, `docs/kernels.md`).
+- **Phase 3 gate passed.** Native ternary kernels (NEON SDOT, int8 per-group activations): WER 1.95 on test-clean; **33.8× real time on dev50 on an M4 Max CPU** vs 28.2× sherpa-onnx int8, 18.1× onnx-asr int8, 13.3× parakeet.cpp q8_0 on the same machine; Moondream's proprietary Photon, measured as a black box on the same machine, does 70× with transcripts identical to ours after normalisation (`bench/run_all.py`, `docs/kernels.md`).
 - **Phase 4 gate passed.** VAD-segmented long-form with segment and word timestamps, streaming that equals offline by construction, any-rate/any-format WAV input. TED-LIUM 3 long-form (11 talks, 148 min): WER 2.58 (card 2.51), ~33× real time.
 - Two findings worth sharing: the leaderboard's compound-merging alignment is worth 0.4 WER on this model, and HF's `ParakeetTokenizer.decode` collapses repeated tokens (a CTC habit that is wrong for TDT; +0.07 WER).
 

@@ -78,6 +78,22 @@ def run_parakeet_cpp_bench(rows):
     note = f"processing only: {audio/proc:.1f}× (load {data['load_ms']/1000:.2f}s excluded; wall column includes it)"
     return out, wall, note
 
+def run_photon(rows, device):
+    """Moondream Photon, black box (D-5.5b): driven only via the usage on the model card, in bench/.venv-photon."""
+    exe = ROOT / "bench/.venv-photon/bin/python"
+    script = ROOT / "bench/photon_driver.py"
+    tmp = ROOT / "results/_photon_manifest.jsonl"
+    tmp.write_text("".join(json.dumps({"id": r["id"], "wav": wav_of(r), "seconds": r["seconds"]}) + "\n" for r in rows))
+    out = ROOT / f"results/bench_photon-{device}.jsonl"
+    t0 = time.time()
+    p = subprocess.run([exe, script, str(tmp), str(out), device], capture_output=True, text=True)
+    wall = time.time() - t0
+    tmp.unlink()
+    if p.returncode != 0:
+        raise RuntimeError(p.stderr.strip().splitlines()[-1] if p.stderr.strip() else "photon driver failed")
+    note = p.stdout.strip().splitlines()[-1] if p.stdout.strip() else ""
+    return out, wall, note
+
 def timed(rows, fn, name, note=""):
     out = ROOT / f"results/bench_{name}.jsonl"
     for r in rows[:2]: fn(r)
@@ -102,6 +118,8 @@ def main():
             elif rt == "sherpa": out, wall, note = run_sherpa(rows)
             elif rt == "onnx-asr": out, wall, note = run_onnx_asr(rows)
             elif rt == "parakeet.cpp": out, wall, note = run_parakeet_cpp_bench(rows)
+            elif rt == "photon-cpu": out, wall, note = run_photon(rows, "cpu")
+            elif rt == "photon-mps": out, wall, note = run_photon(rows, "mps")
             elif rt == "parakeet.cpp-cli": out, wall, note = run_parakeet_cpp(rows)
             else: print("unknown", rt); continue
             w = score(out, ROOT / f"data/manifests/{a.set}.jsonl", quiet=True) if out else float("nan")
