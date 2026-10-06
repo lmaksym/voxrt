@@ -1,7 +1,7 @@
 """Same-machine, same-audio benchmark of Parakeet runtimes (PLAN 5.5, used early for Gate 3).
 One utterance at a time, model loaded once per runtime, 2 warm-up utterances, wall clock per utterance.
 usage: bench/.venv/bin/python bench/run_all.py [--set dev50] [--runtimes prx-int8,prx-f32,sherpa,onnx-asr,parakeet.cpp]"""
-import argparse, json, os, statistics, subprocess, sys, time
+import argparse, json, os, re, statistics, subprocess, sys, time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -26,7 +26,9 @@ def run_prx(rows, precision):
     p = subprocess.run([exe, "batch", str(tmp), str(out), "--precision", precision], capture_output=True, text=True, env=env)
     wall = time.time() - t0
     tmp.unlink()
-    return out, wall, p.stderr.strip().splitlines()[-1] if p.stderr else ""
+    m = re.search(r"([0-9.]+)× real time", p.stderr or "")
+    proc_rtf = float(m.group(1)) if m else float("nan")
+    return out, proc_rtf, "engine-reported processing time, model load excluded"
 
 def run_sherpa(rows):
     import sherpa_onnx, soundfile as sf
@@ -75,8 +77,7 @@ def run_parakeet_cpp_bench(rows):
             f.write(json.dumps({"id": r["id"], "text": it["text"], "rtf": it["audio_sec"] / (it["proc_ms"] / 1000)}) + "\n")
     proc = sum(f["proc_ms"] for f in files) / 1000
     audio = sum(f["audio_sec"] for f in files)
-    note = f"processing only: {audio/proc:.1f}× (load {data['load_ms']/1000:.2f}s excluded; wall column includes it)"
-    return out, wall, note
+    return out, audio / proc, f"parakeet-cli bench proc_ms, load {data['load_ms']/1000:.2f}s excluded"
 
 def run_photon(rows, device):
     """Moondream Photon, black box (D-5.5b): driven only via the usage on the model card, in bench/.venv-photon."""
@@ -91,8 +92,8 @@ def run_photon(rows, device):
     tmp.unlink()
     if p.returncode != 0:
         raise RuntimeError(p.stderr.strip().splitlines()[-1] if p.stderr.strip() else "photon driver failed")
-    note = p.stdout.strip().splitlines()[-1] if p.stdout.strip() else ""
-    return out, wall, note
+    m = re.search(r"processing only: ([0-9.]+)x", p.stdout or "")
+    return out, float(m.group(1)) if m else float("nan"), "driver-reported processing time, model load excluded"
 
 def timed(rows, fn, name, note=""):
     out = ROOT / f"results/bench_{name}.jsonl"
@@ -103,14 +104,15 @@ def timed(rows, fn, name, note=""):
             t1 = time.time(); text = fn(r); dt = time.time() - t1
             per.append(r["seconds"] / dt)
             f.write(json.dumps({"id": r["id"], "text": text, "rtf": r["seconds"] / dt}) + "\n")
-    return out, time.time() - t0, note
+    audio = sum(r["seconds"] for r in rows)
+    return out, audio / sum(1.0 / p for p in per) if per else float("nan"), note or "per-utterance processing time, model load excluded"
 
 def main():
     ap = argparse.ArgumentParser(); ap.add_argument("--set", default="dev50"); ap.add_argument("--runtimes", default="prx-int8,prx-f32,sherpa,onnx-asr,parakeet.cpp")
     a = ap.parse_args(); rows = manifest(a.set); audio = sum(r["seconds"] for r in rows)
     from score import score
     print(f"set={a.set} utts={len(rows)} audio={audio:.0f}s  cpu={os.cpu_count()} threads\n")
-    print(f"{'runtime':20s} {'wall s':>8s} {'× real time':>12s} {'WER %':>7s}  note")
+    print(f"{'runtime':20s} {'× real time':>12s} {'WER %':>7s}  method (all: processing time only, same audio, one utterance at a time)")
     for rt in a.runtimes.split(","):
         try:
             if rt == "prx-int8": out, wall, note = run_prx(rows, "int8")
@@ -123,7 +125,7 @@ def main():
             elif rt == "parakeet.cpp-cli": out, wall, note = run_parakeet_cpp(rows)
             else: print("unknown", rt); continue
             w = score(out, ROOT / f"data/manifests/{a.set}.jsonl", quiet=True) if out else float("nan")
-            print(f"{rt:20s} {wall:8.1f} {audio/wall:12.1f} {100*w:7.2f}  {note}")
+            print(f"{rt:20s} {wall:12.1f} {100*w:7.2f}  {note}")
         except Exception as e:
             print(f"{rt:20s} FAILED: {e!r}"[:300])
 
