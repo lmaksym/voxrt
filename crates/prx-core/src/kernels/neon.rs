@@ -82,8 +82,9 @@ unsafe fn tile_4x4(
     // y is token-major: y[t, o]; write 4 tokens for each row with stride `out`
     let accs = [acc0, acc1, acc2, acc3];
     for r in 0..4 {
+        let (v, ep) = ep.apply_v(accs[r]);
         let mut tmp = [0f32; 4];
-        vst1q_f32(tmp.as_mut_ptr(), accs[r]);
+        vst1q_f32(tmp.as_mut_ptr(), v);
         for c in 0..4 {
             let p = yp[r].add(c * out);
             *p = ep.apply(*p, tmp[c]);
@@ -154,14 +155,32 @@ pub unsafe fn gemm_dotprod(
     r1: usize,
     ep: Epilogue,
 ) {
-    let (inp, g, out, n) = (w.inp, w.group, w.out, x.n);
-    let _ = n;
+    gemm_dotprod_range(w, x, y, r0, r1, 0, x.n, ep)
+}
+
+/// `gemm_dotprod` restricted to tokens `[t0, t1)`.
+///
+/// # Safety
+/// As `gemm_dotprod`.
+#[target_feature(enable = "neon,dotprod")]
+#[allow(clippy::too_many_arguments)]
+pub unsafe fn gemm_dotprod_range(
+    w: &TernaryMatrix,
+    x: &QuantAct,
+    y: &mut [f32],
+    r0: usize,
+    r1: usize,
+    t0: usize,
+    t1: usize,
+    ep: Epilogue,
+) {
+    let (inp, g, out, n) = (w.inp, w.group, w.out, t1);
     let ng = inp / g;
     debug_assert_eq!(g % 16, 0);
     let mut o = r0;
     while o < r1 {
         let rows = (r1 - o).min(4);
-        let mut t = 0;
+        let mut t = t0;
         while t < n {
             let toks = (n - t).min(4);
             if rows == 4 && toks == 4 {
@@ -298,8 +317,9 @@ unsafe fn gemm_i8mm_4x4(
                     if 2 * tp >= toks {
                         break;
                     }
+                    let (fv, ep) = ep.apply_v(fs[rp][tp]);
                     let mut v = [0f32; 4];
-                    vst1q_f32(v.as_mut_ptr(), fs[rp][tp]);
+                    vst1q_f32(v.as_mut_ptr(), fv);
                     for (l, val) in v.iter().enumerate() {
                         let (rr, tt) = (2 * rp + l / 2, 2 * tp + l % 2);
                         if rr < rows && tt < toks {
@@ -396,8 +416,9 @@ unsafe fn store_tile(
 ) {
     for rp in 0..4 {
         for tp in 0..4 {
+            let (fv, ep) = ep.apply_v(f[rp][tp]);
             let mut v = [0f32; 4];
-            vst1q_f32(v.as_mut_ptr(), f[rp][tp]);
+            vst1q_f32(v.as_mut_ptr(), fv);
             for (l, val) in v.iter().enumerate() {
                 let tt = t + 2 * tp + l % 2;
                 if tt < n {
@@ -445,15 +466,36 @@ pub unsafe fn gemm_i8mm(
     r1: usize,
     ep: Epilogue,
 ) {
-    let (inp, g, out, n, n_pad) = (w.inp, w.group, w.out, x.n, x.n_pad);
+    gemm_i8mm_range(w, x, y, r0, r1, 0, x.n, ep)
+}
+
+/// `gemm_i8mm` restricted to tokens `[t0, t1)` (`t0` a multiple of 8 for the 8×8 tiles; any range works, the
+/// remainder goes through the 4×4 tile).
+///
+/// # Safety
+/// As `gemm_i8mm`.
+#[target_feature(enable = "neon,i8mm")]
+#[allow(clippy::too_many_arguments)]
+pub unsafe fn gemm_i8mm_range(
+    w: &TernaryMatrix,
+    x: &QuantAct,
+    y: &mut [f32],
+    r0: usize,
+    r1: usize,
+    t0: usize,
+    t1: usize,
+    ep: Epilogue,
+) {
+    let (inp, g, out, n) = (w.inp, w.group, w.out, t1);
     let ng = inp / g;
     let slabs = inp / 8;
     let gslabs = g / 8;
-    let n8 = n / 8 * 8; // full token tiles; the remainder (e.g. the decoder's single token) goes through the 4×4 tile
-    let _ = n_pad;
+    // full 8-token tiles start at t0 (t0 must be even: token pairs); the remainder goes through the 4×4 tile
+    debug_assert!(t0 % 2 == 0);
+    let n8 = t0 + (t1 - t0) / 8 * 8;
     let r8 = r0 + (r1 - r0) / 8 * 8;
     const TCHUNK: usize = 32;
-    let mut tc = 0;
+    let mut tc = t0;
     while tc < n8 {
         let tc_end = (tc + TCHUNK).min(n8);
         let mut o = r0;
@@ -519,7 +561,7 @@ pub unsafe fn gemm_i8mm(
         gemm_i8mm_4x4(w, x, y, r0, r8, n8, n, ep);
     }
     if r8 < r1 {
-        gemm_i8mm_4x4(w, x, y, r8, r1, 0, n, ep);
+        gemm_i8mm_4x4(w, x, y, r8, r1, t0, n, ep);
     }
 }
 

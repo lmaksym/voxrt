@@ -1,5 +1,5 @@
 //! Kernel exactness: SIMD == scalar on random tiles; quantised path ≈ f32 path (PLAN 3.4 / 3.7).
-use prx_core::kernels::{detect, gemm, gemm_ep, gemm_scalar, Epilogue, Kernel};
+use prx_core::kernels::{detect, gemm, gemm_ep, gemm_rows_range, gemm_scalar, Epilogue, Kernel};
 use prx_core::packed::{Layout, QuantAct, TernaryMatrix};
 use prx_core::tensor::linear;
 use prx_core::trits::pack_row;
@@ -194,4 +194,73 @@ fn accumulation_cannot_overflow() {
         Kernel::Scalar,
         "expected a SIMD kernel on this machine"
     );
+}
+
+/// The token-range entry used by the attention core (3c.8): any (row range, token range) of an int8 (non-ternary)
+/// matrix × int8 activations equals the scalar reference bit for bit, on every kernel.
+#[test]
+fn row_token_ranges_equal_scalar_exactly() {
+    use prx_core::kernels::kernel;
+    use prx_core::packed::Layout;
+    let mut seed = 7u64;
+    let layout = kernel().int8_layout();
+    for &(out, inp, n) in &[
+        (14usize, 128usize, 11usize),
+        (34, 128, 19),
+        (8, 256, 8),
+        (6, 128, 3),
+    ] {
+        let wf: Vec<f32> = (0..out * inp)
+            .map(|_| (lcg(&mut seed) % 2001) as f32 / 100.0 - 10.0)
+            .collect();
+        let w = TernaryMatrix::from_f32_rows(out, inp, 128, layout, |r, row| {
+            row.copy_from_slice(&wf[r * inp..(r + 1) * inp])
+        });
+        let w_rows = TernaryMatrix::from_f32_rows(out, inp, 128, Layout::Rows, |r, row| {
+            row.copy_from_slice(&wf[r * inp..(r + 1) * inp])
+        });
+        let x: Vec<f32> = (0..n * inp)
+            .map(|_| (lcg(&mut seed) % 2001) as f32 / 100.0 - 10.0)
+            .collect();
+        let qa = QuantAct::quantize_layout(&x, n, inp, 128, layout);
+        let qa_rows = QuantAct::quantize(&x, n, inp, 128);
+        let mut y_ref = vec![0f32; n * out];
+        gemm_scalar(&w_rows, &qa_rows, &mut y_ref, 0, out, Epilogue::Store);
+        for &(r0, r1) in &[
+            (0usize, out),
+            (2, out),
+            (0, (out / 2) & !1),
+            (4, 6.min(out)),
+        ] {
+            for &(t0, t1) in &[
+                (0usize, n),
+                (0, n.min(8)),
+                (8.min(n) & !1, n),
+                (2.min(n), n.min(5)),
+            ] {
+                if r0 >= r1 || t0 >= t1 {
+                    continue;
+                }
+                let mut y = vec![f32::NAN; n * out];
+                gemm_rows_range(&w, &qa, &mut y, r0, r1, t0, t1, Epilogue::Store);
+                for t in t0..t1 {
+                    for o in r0..r1 {
+                        assert_eq!(
+                            y[t * out + o],
+                            y_ref[t * out + o],
+                            "out={out} inp={inp} n={n} rows {r0}..{r1} toks {t0}..{t1} at ({t},{o}) kernel={:?}",
+                            kernel()
+                        );
+                    }
+                }
+                // nothing outside the requested block was touched
+                for t in 0..n {
+                    for o in 0..out {
+                        let inside = (t0..t1).contains(&t) && (r0..r1).contains(&o);
+                        assert_eq!(y[t * out + o].is_nan(), !inside, "stray write at ({t},{o})");
+                    }
+                }
+            }
+        }
+    }
 }

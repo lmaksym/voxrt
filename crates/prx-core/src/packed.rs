@@ -136,6 +136,55 @@ impl TernaryMatrix {
         }
     }
 
+    /// Quantise f32 rows produced by `fill(r, row)` into an int8 matrix (absmax/127 per (row, group), like
+    /// `QuantAct`): activations used as the *weight* operand of a GEMM, e.g. keys and relative positions in the
+    /// attention core (PLAN 3c.8). Single-threaded; callers parallelise across heads.
+    pub fn from_f32_rows<F: FnMut(usize, &mut [f32])>(
+        out: usize,
+        inp: usize,
+        group: usize,
+        layout: Layout,
+        mut fill: F,
+    ) -> Self {
+        assert!(layout != Layout::Packed2, "Packed2 is ternary-only");
+        assert!(layout == Layout::Rows || (out % 2 == 0 && inp % 8 == 0));
+        assert_eq!(inp % group, 0);
+        let ng = inp / group;
+        let slabs = inp / 8;
+        let mut w = vec![0i8; out * inp];
+        let mut scales = vec![0f32; out * ng];
+        let mut tmp = vec![0f32; inp];
+        let mut qrow = vec![0i8; inp];
+        for r in 0..out {
+            fill(r, &mut tmp);
+            for g in 0..ng {
+                scales[r * ng + g] = quantize_group(
+                    &tmp[g * group..(g + 1) * group],
+                    &mut qrow[g * group..(g + 1) * group],
+                );
+            }
+            match layout {
+                Layout::Rows => w[r * inp..(r + 1) * inp].copy_from_slice(&qrow),
+                Layout::Pairs => {
+                    let (rp, half) = (r / 2, r % 2);
+                    for sl in 0..slabs {
+                        let o = (rp * slabs + sl) * 16 + half * 8;
+                        w[o..o + 8].copy_from_slice(&qrow[sl * 8..sl * 8 + 8]);
+                    }
+                }
+                Layout::Packed2 => unreachable!(),
+            }
+        }
+        Self {
+            out,
+            inp,
+            group,
+            layout,
+            w,
+            scales,
+        }
+    }
+
     /// Element access independent of layout (reference paths only).
     #[inline]
     pub fn get(&self, r: usize, k: usize) -> i8 {

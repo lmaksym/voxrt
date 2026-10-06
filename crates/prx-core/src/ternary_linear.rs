@@ -97,6 +97,10 @@ impl TernaryLinear {
         })
     }
 
+    pub fn is_int8(&self) -> bool {
+        matches!(self, TernaryLinear::Int8(_))
+    }
+
     pub fn out_features(&self) -> usize {
         match self {
             TernaryLinear::F32 { out, .. } => *out,
@@ -134,13 +138,7 @@ impl TernaryLinear {
     ) -> ActIn<'a> {
         let d = self.in_features();
         let ln_row = |t: usize, row: &mut [f32]| {
-            let xi = &x[t * d..(t + 1) * d];
-            let mean = xi.iter().sum::<f32>() / d as f32;
-            let var = xi.iter().map(|v| (v - mean) * (v - mean)).sum::<f32>() / d as f32;
-            let inv = 1.0 / (var + 1e-5).sqrt();
-            for k in 0..d {
-                row[k] = (xi[k] - mean) * inv * gamma[k] + beta[k];
-            }
+            crate::tensor::layer_norm_row(&x[t * d..(t + 1) * d], gamma, beta, row)
         };
         match self {
             TernaryLinear::F32 { .. } => {

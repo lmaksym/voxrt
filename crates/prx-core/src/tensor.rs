@@ -410,14 +410,74 @@ pub fn par_rows<F: Fn(usize, &mut [f32]) + Sync>(buf: &mut [f32], d: usize, f: F
 pub fn layer_norm(x: &[f32], n: usize, d: usize, g: &[f32], b: &[f32], y: &mut [f32]) {
     debug_assert_eq!(x.len(), n * d);
     par_rows(y, d, |i, yr| {
-        let xi = &x[i * d..(i + 1) * d];
+        layer_norm_row(&x[i * d..(i + 1) * d], g, b, yr)
+    });
+}
+
+/// One LayerNorm row (`eps = 1e-5`, biased variance): `y = (x − mean) · rsqrt(var + eps) · g + b`. The two
+/// reductions run on four NEON lanes (a scalar float sum is a latency-bound dependency chain, which made the
+/// fused norm→quantise pass the slowest per-element loop of the encoder); the normalise loop auto-vectorises.
+#[inline]
+pub fn layer_norm_row(xi: &[f32], g: &[f32], b: &[f32], y: &mut [f32]) {
+    let d = xi.len();
+    let (mean, var) = row_mean_var(xi);
+    let inv = 1.0 / (var + 1e-5).sqrt();
+    for k in 0..d {
+        y[k] = (xi[k] - mean) * inv * g[k] + b[k];
+    }
+}
+
+/// Mean and biased variance of a row (two passes, 4-lane partial sums).
+#[inline]
+pub fn row_mean_var(xi: &[f32]) -> (f32, f32) {
+    let d = xi.len();
+    #[cfg(target_arch = "aarch64")]
+    {
+        // SAFETY: NEON is baseline on aarch64; the tails are scalar.
+        return unsafe { row_mean_var_neon(xi, d) };
+    }
+    #[allow(unreachable_code)]
+    {
         let mean = xi.iter().sum::<f32>() / d as f32;
         let var = xi.iter().map(|v| (v - mean) * (v - mean)).sum::<f32>() / d as f32;
-        let inv = 1.0 / (var + 1e-5).sqrt();
-        for k in 0..d {
-            yr[k] = (xi[k] - mean) * inv * g[k] + b[k];
-        }
-    });
+        (mean, var)
+    }
+}
+
+#[cfg(target_arch = "aarch64")]
+unsafe fn row_mean_var_neon(xi: &[f32], d: usize) -> (f32, f32) {
+    use std::arch::aarch64::*;
+    let p = xi.as_ptr();
+    let (mut s0, mut s1) = (vdupq_n_f32(0.0), vdupq_n_f32(0.0));
+    let mut i = 0;
+    while i + 8 <= d {
+        s0 = vaddq_f32(s0, vld1q_f32(p.add(i)));
+        s1 = vaddq_f32(s1, vld1q_f32(p.add(i + 4)));
+        i += 8;
+    }
+    let mut sum = vaddvq_f32(vaddq_f32(s0, s1));
+    while i < d {
+        sum += *p.add(i);
+        i += 1;
+    }
+    let mean = sum / d as f32;
+    let vm = vdupq_n_f32(mean);
+    let (mut q0, mut q1) = (vdupq_n_f32(0.0), vdupq_n_f32(0.0));
+    i = 0;
+    while i + 8 <= d {
+        let a = vsubq_f32(vld1q_f32(p.add(i)), vm);
+        let c = vsubq_f32(vld1q_f32(p.add(i + 4)), vm);
+        q0 = vfmaq_f32(q0, a, a);
+        q1 = vfmaq_f32(q1, c, c);
+        i += 8;
+    }
+    let mut sq = vaddvq_f32(vaddq_f32(q0, q1));
+    while i < d {
+        let a = *p.add(i) - mean;
+        sq += a * a;
+        i += 1;
+    }
+    (mean, sq / d as f32)
 }
 
 /// In-place SiLU over a `[n, d]` buffer, parallel over rows.
@@ -433,4 +493,261 @@ pub fn silu(v: f32) -> f32 {
 #[inline]
 pub fn sigmoid(v: f32) -> f32 {
     1.0 / (1.0 + (-v).exp())
+}
+
+/// In-place softmax over one row: `row[j] = exp(row[j]·scale − max) / Σ`.
+pub fn softmax_row_scaled(row: &mut [f32], scale: f32) {
+    let inv = 1.0 / exp_row_scaled(row, scale);
+    row.iter_mut().for_each(|v| *v *= inv);
+}
+
+/// In-place `row[j] = exp(row[j]·scale − max)` (the maximum element becomes exactly 1); returns the row sum.
+/// NEON `exp` (range-reduced degree-6 polynomial, ~2 ulp) on aarch64, libm otherwise. Used by the int8 attention
+/// core (PLAN 3c.8); the f32 reference path keeps scalar libm `exp`.
+pub fn exp_row_scaled(row: &mut [f32], scale: f32) -> f32 {
+    #[cfg(target_arch = "aarch64")]
+    {
+        // SAFETY: NEON is baseline on aarch64; tails are scalar.
+        return unsafe { exp_row_neon(row, scale) };
+    }
+    #[allow(unreachable_code)]
+    {
+        let max = row.iter().fold(f32::NEG_INFINITY, |m, v| m.max(v * scale));
+        let mut sum = 0f32;
+        for v in row.iter_mut() {
+            *v = (*v * scale - max).exp();
+            sum += *v;
+        }
+        sum
+    }
+}
+
+const EXP_LN2_HI: f32 = 0.693_145_75;
+const EXP_LN2_LO: f32 = 1.428_606_8e-6;
+const EXP_POLY: [f32; 6] = [1.0 / 120.0, 1.0 / 24.0, 1.0 / 6.0, 0.5, 1.0, 1.0];
+
+/// `exp(x)` by range reduction (`x = n·ln2 + r`, hi/lo split) and a degree-6 Horner polynomial, ~2 ulp; inputs
+/// clamped to [−87, 88]. Scalar mirror of `exp_v`: the same operations (fused multiply-adds, round-to-even, exponent
+/// construction) in the same order, so both give bit-identical results — the kernels' scalar == SIMD contract
+/// extends to the SiLU epilogue.
+#[inline]
+pub fn exp_poly(x: f32) -> f32 {
+    let x = x.max(-87.0).min(88.0);
+    let n = (x * std::f32::consts::LOG2_E).round_ties_even();
+    let r = (-n).mul_add(EXP_LN2_HI, x);
+    let r = (-n).mul_add(EXP_LN2_LO, r);
+    let mut p: f32 = 1.0 / 720.0;
+    for c in EXP_POLY {
+        p = p.mul_add(r, c);
+    }
+    p * f32::from_bits(((n as i32 + 127) << 23) as u32)
+}
+
+/// `x / (1 + exp(−x))` with `exp_poly`; the SiLU used by the GEMM epilogue (scalar and SIMD paths agree bit for bit).
+#[inline]
+pub fn silu_fast(x: f32) -> f32 {
+    x / (1.0 + exp_poly(-x))
+}
+
+/// `1 / (1 + exp(−x))` with `exp_poly` (conv-module GLU).
+#[inline]
+pub fn sigmoid_fast(x: f32) -> f32 {
+    1.0 / (1.0 + exp_poly(-x))
+}
+
+/// Vector `exp_poly` (see there). Safety: NEON only.
+#[cfg(target_arch = "aarch64")]
+#[inline(always)]
+pub unsafe fn exp_v(x: std::arch::aarch64::float32x4_t) -> std::arch::aarch64::float32x4_t {
+    use std::arch::aarch64::*;
+    let x = vminq_f32(vmaxq_f32(x, vdupq_n_f32(-87.0)), vdupq_n_f32(88.0));
+    let n = vrndnq_f32(vmulq_f32(x, vdupq_n_f32(std::f32::consts::LOG2_E)));
+    // vfmsq(a, b, c) = a − b·c fused = fma(−b, c, a): the scalar mirror uses (−n).mul_add(ln2, x)
+    let r = vfmsq_f32(x, n, vdupq_n_f32(EXP_LN2_HI));
+    let r = vfmsq_f32(r, n, vdupq_n_f32(EXP_LN2_LO));
+    let mut p = vdupq_n_f32(1.0 / 720.0);
+    for c in EXP_POLY {
+        p = vfmaq_f32(vdupq_n_f32(c), p, r);
+    }
+    let e = vshlq_n_s32::<23>(vaddq_s32(vcvtq_s32_f32(n), vdupq_n_s32(127)));
+    vmulq_f32(p, vreinterpretq_f32_s32(e))
+}
+
+/// Vector SiLU, bit-identical to `silu_fast`. Safety: NEON only.
+#[cfg(target_arch = "aarch64")]
+#[inline(always)]
+pub unsafe fn silu_v(x: std::arch::aarch64::float32x4_t) -> std::arch::aarch64::float32x4_t {
+    use std::arch::aarch64::*;
+    let one = vdupq_n_f32(1.0);
+    vdivq_f32(x, vaddq_f32(one, exp_v(vnegq_f32(x))))
+}
+
+/// Vector sigmoid, bit-identical to `sigmoid_fast`. Safety: NEON only.
+#[cfg(target_arch = "aarch64")]
+#[inline(always)]
+pub unsafe fn sigmoid_v(x: std::arch::aarch64::float32x4_t) -> std::arch::aarch64::float32x4_t {
+    use std::arch::aarch64::*;
+    let one = vdupq_n_f32(1.0);
+    vdivq_f32(one, vaddq_f32(one, exp_v(vnegq_f32(x))))
+}
+
+/// GLU over one time row: `out[c] = a[c] · sigmoid(b[c])`.
+pub fn glu_row(a: &[f32], b: &[f32], out: &mut [f32]) {
+    #[cfg(target_arch = "aarch64")]
+    {
+        use std::arch::aarch64::*;
+        let n = out.len();
+        let mut i = 0;
+        // SAFETY: NEON baseline; bounds by the loop condition.
+        unsafe {
+            while i + 4 <= n {
+                let g = sigmoid_v(vld1q_f32(b.as_ptr().add(i)));
+                vst1q_f32(
+                    out.as_mut_ptr().add(i),
+                    vmulq_f32(vld1q_f32(a.as_ptr().add(i)), g),
+                );
+                i += 4;
+            }
+        }
+        for c in i..n {
+            out[c] = a[c] * sigmoid_fast(b[c]);
+        }
+        return;
+    }
+    #[allow(unreachable_code)]
+    for c in 0..out.len() {
+        out[c] = a[c] * sigmoid_fast(b[c]);
+    }
+}
+
+/// In-place SiLU over a row with `silu_fast` / `silu_v`.
+pub fn silu_row(row: &mut [f32]) {
+    #[cfg(target_arch = "aarch64")]
+    {
+        use std::arch::aarch64::*;
+        let n = row.len();
+        let mut i = 0;
+        // SAFETY: NEON baseline; bounds by the loop condition.
+        unsafe {
+            while i + 4 <= n {
+                let p = row.as_mut_ptr().add(i);
+                vst1q_f32(p, silu_v(vld1q_f32(p)));
+                i += 4;
+            }
+        }
+        for v in &mut row[i..] {
+            *v = silu_fast(*v);
+        }
+        return;
+    }
+    #[allow(unreachable_code)]
+    for v in row.iter_mut() {
+        *v = silu_fast(*v);
+    }
+}
+
+#[cfg(target_arch = "aarch64")]
+unsafe fn exp_row_neon(row: &mut [f32], scale: f32) -> f32 {
+    use std::arch::aarch64::*;
+    let n = row.len();
+    let p = row.as_mut_ptr();
+    let vs = vdupq_n_f32(scale);
+    let mut vmax = vdupq_n_f32(f32::NEG_INFINITY);
+    let mut i = 0;
+    while i + 4 <= n {
+        let v = vmulq_f32(vld1q_f32(p.add(i)), vs);
+        vst1q_f32(p.add(i), v);
+        vmax = vmaxq_f32(vmax, v);
+        i += 4;
+    }
+    let mut max = vmaxvq_f32(vmax);
+    while i < n {
+        *p.add(i) *= scale;
+        max = max.max(*p.add(i));
+        i += 1;
+    }
+    let vm = vdupq_n_f32(max);
+    let mut vsum = vdupq_n_f32(0.0);
+    i = 0;
+    while i + 4 <= n {
+        let e = exp_v(vsubq_f32(vld1q_f32(p.add(i)), vm));
+        vst1q_f32(p.add(i), e);
+        vsum = vaddq_f32(vsum, e);
+        i += 4;
+    }
+    let mut sum = vaddvq_f32(vsum);
+    while i < n {
+        let e = (*p.add(i) - max).exp();
+        *p.add(i) = e;
+        sum += e;
+        i += 1;
+    }
+    sum
+}
+
+#[cfg(test)]
+mod exp_tests {
+    #[test]
+    fn exp_poly_close_to_libm_and_scalar_equals_vector() {
+        let xs: Vec<f32> = (-2000..2000)
+            .map(|i| i as f32 * 0.05)
+            .chain([-87.0, -100.0, 88.0, 1e3, 0.0, -0.0])
+            .collect();
+        for &x in &xs {
+            let got = super::exp_poly(x);
+            let want = (x.clamp(-87.0, 88.0) as f64).exp();
+            assert!(
+                ((got as f64 - want) / want).abs() < 3e-7,
+                "x={x}: {got} vs {want}"
+            );
+        }
+        #[cfg(target_arch = "aarch64")]
+        for ch in xs.chunks_exact(4) {
+            let mut out = [0f32; 4];
+            unsafe {
+                use std::arch::aarch64::*;
+                vst1q_f32(out.as_mut_ptr(), super::silu_v(vld1q_f32(ch.as_ptr())));
+            }
+            for (x, o) in ch.iter().zip(out) {
+                assert_eq!(
+                    o.to_bits(),
+                    super::silu_fast(*x).to_bits(),
+                    "silu scalar != vector at {x}"
+                );
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod softmax_tests {
+    #[test]
+    fn neon_softmax_matches_libm() {
+        let mut seed = 1u64;
+        for n in [1usize, 3, 4, 7, 64, 333] {
+            let x: Vec<f32> = (0..n)
+                .map(|_| {
+                    seed = seed
+                        .wrapping_mul(6364136223846793005)
+                        .wrapping_add(1442695040888963407);
+                    ((seed >> 33) % 20001) as f32 / 100.0 - 100.0
+                })
+                .collect();
+            let mut a = x.clone();
+            super::softmax_row_scaled(&mut a, 0.0884);
+            let max = x.iter().fold(f32::NEG_INFINITY, |m, v| m.max(v * 0.0884));
+            let e: Vec<f64> = x
+                .iter()
+                .map(|v| ((v * 0.0884 - max) as f64).exp())
+                .collect();
+            let s: f64 = e.iter().sum();
+            for (j, (got, want)) in a.iter().zip(&e).enumerate() {
+                let want = (want / s) as f32;
+                assert!(
+                    (got - want).abs() <= 2e-6 + want.abs() * 4e-6,
+                    "n={n} j={j}: {got} vs {want}"
+                );
+            }
+        }
+    }
 }

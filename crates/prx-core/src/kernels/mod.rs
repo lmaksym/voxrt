@@ -19,11 +19,25 @@ pub enum Epilogue {
 }
 
 impl Epilogue {
+    /// Vector pre-pass: elementwise epilogues (SiLU) are applied on the whole register before the scatter, which
+    /// then stores plainly; `AddScaled` needs the old values and stays per lane.
+    #[cfg(target_arch = "aarch64")]
+    #[inline(always)]
+    pub unsafe fn apply_v(
+        self,
+        v: std::arch::aarch64::float32x4_t,
+    ) -> (std::arch::aarch64::float32x4_t, Epilogue) {
+        match self {
+            Epilogue::Silu => (crate::tensor::silu_v(v), Epilogue::Store),
+            other => (v, other),
+        }
+    }
+
     #[inline(always)]
     pub fn apply(self, old: f32, v: f32) -> f32 {
         match self {
             Epilogue::Store => v,
-            Epilogue::Silu => crate::tensor::silu(v),
+            Epilogue::Silu => crate::tensor::silu_fast(v),
             Epilogue::AddScaled(s) => s.mul_add(v, old),
         }
     }
@@ -103,10 +117,25 @@ pub fn gemm_scalar(
     r1: usize,
     ep: Epilogue,
 ) {
+    gemm_scalar_range(w, x, y, r0, r1, 0, x.n, ep)
+}
+
+/// `gemm_scalar` restricted to tokens `[t0, t1)`.
+#[allow(clippy::needless_range_loop, clippy::too_many_arguments)]
+pub fn gemm_scalar_range(
+    w: &TernaryMatrix,
+    x: &QuantAct,
+    y: &mut [f32],
+    r0: usize,
+    r1: usize,
+    t0: usize,
+    t1: usize,
+    ep: Epilogue,
+) {
     let (inp, g) = (w.inp, w.group);
     let ng = inp / g;
     for o in r0..r1 {
-        for t in 0..x.n {
+        for t in t0..t1 {
             let mut acc = 0f32;
             for gi in 0..ng {
                 let mut s = 0i32;
@@ -145,6 +174,43 @@ fn gemm_rows(
         },
         #[cfg(not(target_arch = "aarch64"))]
         Kernel::NeonDotprod | Kernel::NeonI8mm => gemm_scalar(w, x, y, r0, r1, ep),
+    }
+}
+
+/// Kernel for a (weight layout, activation layout) pair; degrades gracefully to the scalar reference.
+fn select_kernel(w: &TernaryMatrix, x: &QuantAct) -> Kernel {
+    match (kernel(), w.layout, x.layout) {
+        (Kernel::NeonI8mm, Layout::Pairs | Layout::Packed2, Layout::Pairs) => Kernel::NeonI8mm,
+        (Kernel::NeonI8mm, Layout::Rows, Layout::Rows)
+        | (Kernel::NeonDotprod, Layout::Rows, Layout::Rows) => Kernel::NeonDotprod,
+        _ => Kernel::Scalar,
+    }
+}
+
+/// Single-threaded tile of the GEMM: rows `[r0, r1)` × tokens `[t0, t1)` of `y[n, out]` (row stride `w.out`).
+/// Used by the attention core (PLAN 3c.8), where each task owns a block of query rows; `r0` and `r1` must be even
+/// on the I8MM path (row pairs). Not for `Packed2` weights.
+#[allow(clippy::too_many_arguments)]
+pub fn gemm_rows_range(
+    w: &TernaryMatrix,
+    x: &QuantAct,
+    y: &mut [f32],
+    r0: usize,
+    r1: usize,
+    t0: usize,
+    t1: usize,
+    ep: Epilogue,
+) {
+    debug_assert!(w.layout != Layout::Packed2);
+    debug_assert!(t1 <= x.n && r1 <= w.out);
+    match select_kernel(w, x) {
+        #[cfg(target_arch = "aarch64")]
+        Kernel::NeonDotprod => unsafe { neon::gemm_dotprod_range(w, x, y, r0, r1, t0, t1, ep) },
+        #[cfg(target_arch = "aarch64")]
+        Kernel::NeonI8mm if w.layout == Layout::Pairs => unsafe {
+            neon::gemm_i8mm_range(w, x, y, r0, r1, t0, t1, ep)
+        },
+        _ => gemm_scalar_range(w, x, y, r0, r1, t0, t1, ep),
     }
 }
 
