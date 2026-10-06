@@ -449,7 +449,8 @@ pub unsafe fn gemm_i8mm(
     let ng = inp / g;
     let slabs = inp / 8;
     let gslabs = g / 8;
-    let n8 = n_pad; // tokens are zero-padded to a multiple of 8; padded outputs are not stored
+    let n8 = n / 8 * 8; // full token tiles; the remainder (e.g. the decoder's single token) goes through the 4×4 tile
+    let _ = n_pad;
     let r8 = r0 + (r1 - r0) / 8 * 8;
     const TCHUNK: usize = 32;
     let mut tc = 0;
@@ -513,6 +514,9 @@ pub unsafe fn gemm_i8mm(
             o += 8;
         }
         tc = tc_end;
+    }
+    if n8 < n {
+        gemm_i8mm_4x4(w, x, y, r0, r8, n8, n, ep);
     }
     if r8 < r1 {
         gemm_i8mm_4x4(w, x, y, r8, r1, 0, n, ep);
