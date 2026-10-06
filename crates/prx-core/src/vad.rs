@@ -91,19 +91,22 @@ pub struct Segment {
 pub struct SegmentConfig {
     pub threshold: f32,
     pub min_pause_frames: usize, // 3 → 240 ms
-    pub max_frames: usize,       // 375 → 30 s
-    pub min_frames: usize,       // 12 → ~1 s: shorter segments merge with a neighbour
+    pub max_frames: usize,       // 750 → 60 s
+    pub min_frames: usize,       // 125 → 10 s: shorter segments merge with a neighbour
     pub pad_frames: usize,       // speech padding at both ends, if available
 }
 
 impl Default for SegmentConfig {
     fn default() -> Self {
-        // tuned on TED-LIUM 3 long-form (docs/vad.md): pause 640 ms, pad 160 ms, min 5 s, cap 30 s
+        // tuned on TED-LIUM 3 long-form (docs/vad.md): pause 640 ms, pad 160 ms, min 10 s, cap 60 s. The second
+        // round (2026-10-06) showed the residual gap to Photon was segment *context*, not cut placement: WER plateaus
+        // at 2.55 once segments are ≥ 10 s with a 60 s cap (2.61 at 5 s / 30 s). Costs: first output after ≥ 10 s of
+        // speech when streaming, ~1.6 GB peak RSS on a 20 min talk (segment-sized buffers) instead of ~1.0 GB.
         Self {
             threshold: 0.5,
             min_pause_frames: 8,
-            max_frames: 375,
-            min_frames: 63,
+            max_frames: 750,
+            min_frames: 125,
             pad_frames: 2,
         }
     }
