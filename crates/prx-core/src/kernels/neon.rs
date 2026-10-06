@@ -315,8 +315,124 @@ unsafe fn gemm_i8mm_4x4(
     }
 }
 
-/// I8MM main kernel: 8 rows × 8 tokens per tile (4 row pairs × 4 token pairs = 16 `smmla` accumulators, 8 loads per
-/// 8-column slab → 64 MACs per load). Edges (rows or tokens < 8) go through the 4×4 tile.
+/// 16 `smmla` updates of a 4×4 block of 2×2 accumulators: `$a[rp][tp] += W[rp] · X[tp]`.
+macro_rules! mm16 {
+    ($a00:ident,$a01:ident,$a02:ident,$a03:ident,$a10:ident,$a11:ident,$a12:ident,$a13:ident,
+     $a20:ident,$a21:ident,$a22:ident,$a23:ident,$a30:ident,$a31:ident,$a32:ident,$a33:ident,
+     $w0:expr,$w1:expr,$w2:expr,$w3:expr,$x0:expr,$x1:expr,$x2:expr,$x3:expr) => {{
+        let (w0, w1, w2, w3) = ($w0, $w1, $w2, $w3);
+        let (x0, x1, x2, x3) = ($x0, $x1, $x2, $x3);
+        $a00 = smmla($a00, w0, x0);
+        $a01 = smmla($a01, w0, x1);
+        $a02 = smmla($a02, w0, x2);
+        $a03 = smmla($a03, w0, x3);
+        $a10 = smmla($a10, w1, x0);
+        $a11 = smmla($a11, w1, x1);
+        $a12 = smmla($a12, w1, x2);
+        $a13 = smmla($a13, w1, x3);
+        $a20 = smmla($a20, w2, x0);
+        $a21 = smmla($a21, w2, x1);
+        $a22 = smmla($a22, w2, x2);
+        $a23 = smmla($a23, w2, x3);
+        $a30 = smmla($a30, w3, x0);
+        $a31 = smmla($a31, w3, x1);
+        $a32 = smmla($a32, w3, x2);
+        $a33 = smmla($a33, w3, x3);
+    }};
+}
+
+/// Per-group epilogue: `f[rp][tp] += cvt(a[rp][tp]) · (sx[tp] · sw[rp])` for the 16 blocks, then zero the i32 accumulators.
+macro_rules! epilogue16 {
+    ($f:ident, $a00:ident,$a01:ident,$a02:ident,$a03:ident,$a10:ident,$a11:ident,$a12:ident,$a13:ident,
+     $a20:ident,$a21:ident,$a22:ident,$a23:ident,$a30:ident,$a31:ident,$a32:ident,$a33:ident, $sx:expr, $sw:expr) => {{
+        let sx: [float32x4_t; 4] = $sx;
+        let sw: [float32x4_t; 4] = $sw;
+        $f[0][0] = vfmaq_f32($f[0][0], vcvtq_f32_s32($a00), vmulq_f32(sx[0], sw[0]));
+        $f[0][1] = vfmaq_f32($f[0][1], vcvtq_f32_s32($a01), vmulq_f32(sx[1], sw[0]));
+        $f[0][2] = vfmaq_f32($f[0][2], vcvtq_f32_s32($a02), vmulq_f32(sx[2], sw[0]));
+        $f[0][3] = vfmaq_f32($f[0][3], vcvtq_f32_s32($a03), vmulq_f32(sx[3], sw[0]));
+        $f[1][0] = vfmaq_f32($f[1][0], vcvtq_f32_s32($a10), vmulq_f32(sx[0], sw[1]));
+        $f[1][1] = vfmaq_f32($f[1][1], vcvtq_f32_s32($a11), vmulq_f32(sx[1], sw[1]));
+        $f[1][2] = vfmaq_f32($f[1][2], vcvtq_f32_s32($a12), vmulq_f32(sx[2], sw[1]));
+        $f[1][3] = vfmaq_f32($f[1][3], vcvtq_f32_s32($a13), vmulq_f32(sx[3], sw[1]));
+        $f[2][0] = vfmaq_f32($f[2][0], vcvtq_f32_s32($a20), vmulq_f32(sx[0], sw[2]));
+        $f[2][1] = vfmaq_f32($f[2][1], vcvtq_f32_s32($a21), vmulq_f32(sx[1], sw[2]));
+        $f[2][2] = vfmaq_f32($f[2][2], vcvtq_f32_s32($a22), vmulq_f32(sx[2], sw[2]));
+        $f[2][3] = vfmaq_f32($f[2][3], vcvtq_f32_s32($a23), vmulq_f32(sx[3], sw[2]));
+        $f[3][0] = vfmaq_f32($f[3][0], vcvtq_f32_s32($a30), vmulq_f32(sx[0], sw[3]));
+        $f[3][1] = vfmaq_f32($f[3][1], vcvtq_f32_s32($a31), vmulq_f32(sx[1], sw[3]));
+        $f[3][2] = vfmaq_f32($f[3][2], vcvtq_f32_s32($a32), vmulq_f32(sx[2], sw[3]));
+        $f[3][3] = vfmaq_f32($f[3][3], vcvtq_f32_s32($a33), vmulq_f32(sx[3], sw[3]));
+        let z = vdupq_n_s32(0);
+        $a00 = z;
+        $a01 = z;
+        $a02 = z;
+        $a03 = z;
+        $a10 = z;
+        $a11 = z;
+        $a12 = z;
+        $a13 = z;
+        $a20 = z;
+        $a21 = z;
+        $a22 = z;
+        $a23 = z;
+        $a30 = z;
+        $a31 = z;
+        $a32 = z;
+        $a33 = z;
+    }};
+}
+
+/// Scatter the 16 f32 2×2 blocks of a tile into `y` (token-major) through the epilogue.
+#[inline(always)]
+unsafe fn store_tile(
+    f: &[[float32x4_t; 4]; 4],
+    y: &mut [f32],
+    t: usize,
+    o: usize,
+    out: usize,
+    n: usize,
+    ep: Epilogue,
+) {
+    for rp in 0..4 {
+        for tp in 0..4 {
+            let mut v = [0f32; 4];
+            vst1q_f32(v.as_mut_ptr(), f[rp][tp]);
+            for (l, val) in v.iter().enumerate() {
+                let tt = t + 2 * tp + l % 2;
+                if tt < n {
+                    let p = y.get_unchecked_mut(tt * out + o + 2 * rp + l / 2);
+                    *p = ep.apply(*p, *val);
+                }
+            }
+        }
+    }
+}
+
+#[inline(always)]
+unsafe fn group_scales(
+    x: &QuantAct,
+    w: &TernaryMatrix,
+    gi: usize,
+    t: usize,
+    o: usize,
+    ng: usize,
+) -> ([float32x4_t; 4], [float32x4_t; 4]) {
+    let sxp = x.scales_t.as_ptr().add(gi * x.n_pad + t);
+    let sx: [float32x4_t; 4] = std::array::from_fn(|tp| {
+        let v = vld1_f32(sxp.add(2 * tp));
+        vcombine_f32(v, v) // [sx0, sx1, sx0, sx1]
+    });
+    let sw: [float32x4_t; 4] = std::array::from_fn(|rp| {
+        let sw0 = *w.scales.get_unchecked((o + 2 * rp) * ng + gi);
+        let sw1 = *w.scales.get_unchecked((o + 2 * rp + 1) * ng + gi);
+        vcombine_f32(vdup_n_f32(sw0), vdup_n_f32(sw1)) // [sw0, sw0, sw1, sw1]
+    });
+    (sx, sw)
+}
+
+/// I8MM main kernel on `Layout::Pairs`: 8 rows × 8 tokens per tile, 16 named `smmla` accumulators (fully unrolled —
+/// indexed arrays spilled to the stack and halved throughput), per-group epilogue. Edges go through the 4×4 tile.
 ///
 /// # Safety
 /// Caller must have verified `i8mm` support and `w.layout == Layout::Pairs`.
@@ -333,9 +449,9 @@ pub unsafe fn gemm_i8mm(
     let ng = inp / g;
     let slabs = inp / 8;
     let gslabs = g / 8;
-    let n8 = n / 8 * 8; // full token tiles
-    let r8 = r0 + (r1 - r0) / 8 * 8; // full row tiles
-    const TCHUNK: usize = 32; // tokens per L1-resident chunk (32 × 4 KB = 128 KB at inp = 4096)
+    let n8 = n_pad; // tokens are zero-padded to a multiple of 8; padded outputs are not stored
+    let r8 = r0 + (r1 - r0) / 8 * 8;
+    const TCHUNK: usize = 32;
     let mut tc = 0;
     while tc < n8 {
         let tc_end = (tc + TCHUNK).min(n8);
@@ -348,78 +464,63 @@ pub unsafe fn gemm_i8mm(
                 let xp: [*const i8; 4] =
                     std::array::from_fn(|tp| x.x.as_ptr().add((t / 2 + tp) * slabs * 16));
                 let z = vdupq_n_f32(0.0);
-                let mut f = [[z; 4]; 4]; // [row pair][token pair]
+                let mut f = [[z; 4]; 4];
+                let zi = vdupq_n_s32(0);
+                let (mut a00, mut a01, mut a02, mut a03) = (zi, zi, zi, zi);
+                let (mut a10, mut a11, mut a12, mut a13) = (zi, zi, zi, zi);
+                let (mut a20, mut a21, mut a22, mut a23) = (zi, zi, zi, zi);
+                let (mut a30, mut a31, mut a32, mut a33) = (zi, zi, zi, zi);
                 for gi in 0..ng {
-                    let zi = vdupq_n_s32(0);
-                    let mut a = [[zi; 4]; 4];
                     let base = gi * gslabs * 16;
                     for sl in 0..gslabs {
                         let off = base + sl * 16;
-                        let wv = [
+                        mm16!(
+                            a00,
+                            a01,
+                            a02,
+                            a03,
+                            a10,
+                            a11,
+                            a12,
+                            a13,
+                            a20,
+                            a21,
+                            a22,
+                            a23,
+                            a30,
+                            a31,
+                            a32,
+                            a33,
                             vld1q_s8(wp[0].add(off)),
                             vld1q_s8(wp[1].add(off)),
                             vld1q_s8(wp[2].add(off)),
                             vld1q_s8(wp[3].add(off)),
-                        ];
-                        let xv = [
                             vld1q_s8(xp[0].add(off)),
                             vld1q_s8(xp[1].add(off)),
                             vld1q_s8(xp[2].add(off)),
-                            vld1q_s8(xp[3].add(off)),
-                        ];
-                        for rp in 0..4 {
-                            a[rp][0] = smmla(a[rp][0], wv[rp], xv[0]);
-                            a[rp][1] = smmla(a[rp][1], wv[rp], xv[1]);
-                            a[rp][2] = smmla(a[rp][2], wv[rp], xv[2]);
-                            a[rp][3] = smmla(a[rp][3], wv[rp], xv[3]);
-                        }
+                            vld1q_s8(xp[3].add(off))
+                        );
                     }
-                    let sxp = x.scales_t.as_ptr().add(gi * n_pad + t);
-                    let sx: [float32x4_t; 4] = std::array::from_fn(|tp| {
-                        let v = vld1_f32(sxp.add(2 * tp));
-                        vcombine_f32(v, v) // [sx0, sx1, sx0, sx1]
-                    });
-                    for rp in 0..4 {
-                        let sw0 = *w.scales.get_unchecked((o + 2 * rp) * ng + gi);
-                        let sw1 = *w.scales.get_unchecked((o + 2 * rp + 1) * ng + gi);
-                        let swv = vcombine_f32(vdup_n_f32(sw0), vdup_n_f32(sw1)); // [sw0, sw0, sw1, sw1]
-                        for tp in 0..4 {
-                            f[rp][tp] = vfmaq_f32(
-                                f[rp][tp],
-                                vcvtq_f32_s32(a[rp][tp]),
-                                vmulq_f32(sx[tp], swv),
-                            );
-                        }
-                    }
+                    let (sx, sw) = group_scales(x, w, gi, t, o, ng);
+                    epilogue16!(
+                        f, a00, a01, a02, a03, a10, a11, a12, a13, a20, a21, a22, a23, a30, a31,
+                        a32, a33, sx, sw
+                    );
                 }
-                for rp in 0..4 {
-                    for tp in 0..4 {
-                        let mut v = [0f32; 4];
-                        vst1q_f32(v.as_mut_ptr(), f[rp][tp]);
-                        for (l, val) in v.iter().enumerate() {
-                            let p = y
-                                .get_unchecked_mut((t + 2 * tp + l % 2) * out + o + 2 * rp + l / 2);
-                            *p = ep.apply(*p, *val);
-                        }
-                    }
-                }
+                store_tile(&f, y, t, o, out, n, ep);
                 t += 8;
             }
             o += 8;
         }
         tc = tc_end;
     }
-    if n8 < n {
-        gemm_i8mm_4x4(w, x, y, r0, r8, n8, n, ep);
-    }
     if r8 < r1 {
         gemm_i8mm_4x4(w, x, y, r8, r1, 0, n, ep);
     }
 }
 
-/// I8MM kernel on `Layout::Packed2` weights (PLAN 3c.10): one 16-byte load per row pair per quad unpacks into the four
-/// `smmla` operands of 32 columns (shift, and, subtract 1), so weight traffic per tile is a quarter of `Pairs`.
-/// Tokens are padded to a multiple of 8 by `QuantAct`, rows are multiples of 8 by the dispatcher → no edge tiles.
+/// I8MM kernel on `Layout::Packed2` weights (PLAN 3c.10): one 16-byte load per row pair per quad (4 slabs = 32 columns)
+/// unpacked just in time into the four `smmla` operands. Fully unrolled; no edge tiles (tokens padded, rows multiples of 8).
 ///
 /// # Safety
 /// Caller must have verified `i8mm` support, `w.layout == Layout::Packed2`, `x.layout == Layout::Pairs`.
@@ -441,6 +542,21 @@ pub unsafe fn gemm_i8mm_2bit(
     const TCHUNK: usize = 32;
     let mask3 = vdupq_n_u8(3);
     let one = vdupq_n_s8(1);
+    // operand j of a packed quad register
+    macro_rules! unpack {
+        ($c:expr, 0) => {
+            vsubq_s8(vreinterpretq_s8_u8(vandq_u8($c, mask3)), one)
+        };
+        ($c:expr, 1) => {
+            vsubq_s8(vreinterpretq_s8_u8(vandq_u8(vshrq_n_u8($c, 2), mask3)), one)
+        };
+        ($c:expr, 2) => {
+            vsubq_s8(vreinterpretq_s8_u8(vandq_u8(vshrq_n_u8($c, 4), mask3)), one)
+        };
+        ($c:expr, 3) => {
+            vsubq_s8(vreinterpretq_s8_u8(vshrq_n_u8($c, 6)), one)
+        };
+    }
     let mut tc = 0;
     while tc < n_pad {
         let tc_end = (tc + TCHUNK).min(n_pad);
@@ -454,72 +570,131 @@ pub unsafe fn gemm_i8mm_2bit(
                     std::array::from_fn(|tp| x.x.as_ptr().add((t / 2 + tp) * slabs * 16));
                 let z = vdupq_n_f32(0.0);
                 let mut f = [[z; 4]; 4];
+                let zi = vdupq_n_s32(0);
+                let (mut a00, mut a01, mut a02, mut a03) = (zi, zi, zi, zi);
+                let (mut a10, mut a11, mut a12, mut a13) = (zi, zi, zi, zi);
+                let (mut a20, mut a21, mut a22, mut a23) = (zi, zi, zi, zi);
+                let (mut a30, mut a31, mut a32, mut a33) = (zi, zi, zi, zi);
                 for gi in 0..ng {
-                    let zi = vdupq_n_s32(0);
-                    let mut a = [[zi; 4]; 4];
                     for qq in 0..gquads {
                         let q = gi * gquads + qq;
-                        let mut wv = [[vdupq_n_s8(0); 4]; 4];
-                        for rp in 0..4 {
-                            let c = vld1q_u8(wp[rp].add(q * 16));
-                            wv[rp][0] = vsubq_s8(vreinterpretq_s8_u8(vandq_u8(c, mask3)), one);
-                            wv[rp][1] = vsubq_s8(
-                                vreinterpretq_s8_u8(vandq_u8(vshrq_n_u8(c, 2), mask3)),
-                                one,
-                            );
-                            wv[rp][2] = vsubq_s8(
-                                vreinterpretq_s8_u8(vandq_u8(vshrq_n_u8(c, 4), mask3)),
-                                one,
-                            );
-                            wv[rp][3] = vsubq_s8(vreinterpretq_s8_u8(vshrq_n_u8(c, 6)), one);
-                        }
-                        for j in 0..4 {
-                            let off = (q * 4 + j) * 16;
-                            let xv = [
-                                vld1q_s8(xp[0].add(off)),
-                                vld1q_s8(xp[1].add(off)),
-                                vld1q_s8(xp[2].add(off)),
-                                vld1q_s8(xp[3].add(off)),
-                            ];
-                            for rp in 0..4 {
-                                a[rp][0] = smmla(a[rp][0], wv[rp][j], xv[0]);
-                                a[rp][1] = smmla(a[rp][1], wv[rp][j], xv[1]);
-                                a[rp][2] = smmla(a[rp][2], wv[rp][j], xv[2]);
-                                a[rp][3] = smmla(a[rp][3], wv[rp][j], xv[3]);
-                            }
-                        }
+                        let c0 = vld1q_u8(wp[0].add(q * 16));
+                        let c1 = vld1q_u8(wp[1].add(q * 16));
+                        let c2 = vld1q_u8(wp[2].add(q * 16));
+                        let c3 = vld1q_u8(wp[3].add(q * 16));
+                        let x_off = q * 4 * 16;
+                        mm16!(
+                            a00,
+                            a01,
+                            a02,
+                            a03,
+                            a10,
+                            a11,
+                            a12,
+                            a13,
+                            a20,
+                            a21,
+                            a22,
+                            a23,
+                            a30,
+                            a31,
+                            a32,
+                            a33,
+                            unpack!(c0, 0),
+                            unpack!(c1, 0),
+                            unpack!(c2, 0),
+                            unpack!(c3, 0),
+                            vld1q_s8(xp[0].add(x_off)),
+                            vld1q_s8(xp[1].add(x_off)),
+                            vld1q_s8(xp[2].add(x_off)),
+                            vld1q_s8(xp[3].add(x_off))
+                        );
+                        mm16!(
+                            a00,
+                            a01,
+                            a02,
+                            a03,
+                            a10,
+                            a11,
+                            a12,
+                            a13,
+                            a20,
+                            a21,
+                            a22,
+                            a23,
+                            a30,
+                            a31,
+                            a32,
+                            a33,
+                            unpack!(c0, 1),
+                            unpack!(c1, 1),
+                            unpack!(c2, 1),
+                            unpack!(c3, 1),
+                            vld1q_s8(xp[0].add(x_off + 16)),
+                            vld1q_s8(xp[1].add(x_off + 16)),
+                            vld1q_s8(xp[2].add(x_off + 16)),
+                            vld1q_s8(xp[3].add(x_off + 16))
+                        );
+                        mm16!(
+                            a00,
+                            a01,
+                            a02,
+                            a03,
+                            a10,
+                            a11,
+                            a12,
+                            a13,
+                            a20,
+                            a21,
+                            a22,
+                            a23,
+                            a30,
+                            a31,
+                            a32,
+                            a33,
+                            unpack!(c0, 2),
+                            unpack!(c1, 2),
+                            unpack!(c2, 2),
+                            unpack!(c3, 2),
+                            vld1q_s8(xp[0].add(x_off + 32)),
+                            vld1q_s8(xp[1].add(x_off + 32)),
+                            vld1q_s8(xp[2].add(x_off + 32)),
+                            vld1q_s8(xp[3].add(x_off + 32))
+                        );
+                        mm16!(
+                            a00,
+                            a01,
+                            a02,
+                            a03,
+                            a10,
+                            a11,
+                            a12,
+                            a13,
+                            a20,
+                            a21,
+                            a22,
+                            a23,
+                            a30,
+                            a31,
+                            a32,
+                            a33,
+                            unpack!(c0, 3),
+                            unpack!(c1, 3),
+                            unpack!(c2, 3),
+                            unpack!(c3, 3),
+                            vld1q_s8(xp[0].add(x_off + 48)),
+                            vld1q_s8(xp[1].add(x_off + 48)),
+                            vld1q_s8(xp[2].add(x_off + 48)),
+                            vld1q_s8(xp[3].add(x_off + 48))
+                        );
                     }
-                    let sxp = x.scales_t.as_ptr().add(gi * n_pad + t);
-                    let sx: [float32x4_t; 4] = std::array::from_fn(|tp| {
-                        let v = vld1_f32(sxp.add(2 * tp));
-                        vcombine_f32(v, v)
-                    });
-                    for rp in 0..4 {
-                        let sw0 = *w.scales.get_unchecked((o + 2 * rp) * ng + gi);
-                        let sw1 = *w.scales.get_unchecked((o + 2 * rp + 1) * ng + gi);
-                        let swv = vcombine_f32(vdup_n_f32(sw0), vdup_n_f32(sw1));
-                        for tp in 0..4 {
-                            f[rp][tp] = vfmaq_f32(
-                                f[rp][tp],
-                                vcvtq_f32_s32(a[rp][tp]),
-                                vmulq_f32(sx[tp], swv),
-                            );
-                        }
-                    }
+                    let (sx, sw) = group_scales(x, w, gi, t, o, ng);
+                    epilogue16!(
+                        f, a00, a01, a02, a03, a10, a11, a12, a13, a20, a21, a22, a23, a30, a31,
+                        a32, a33, sx, sw
+                    );
                 }
-                for rp in 0..4 {
-                    for tp in 0..4 {
-                        let mut v = [0f32; 4];
-                        vst1q_f32(v.as_mut_ptr(), f[rp][tp]);
-                        for (l, val) in v.iter().enumerate() {
-                            let tt = t + 2 * tp + l % 2;
-                            if tt < n {
-                                let p = y.get_unchecked_mut(tt * out + o + 2 * rp + l / 2);
-                                *p = ep.apply(*p, *val);
-                            }
-                        }
-                    }
-                }
+                store_tile(&f, y, t, o, out, n, ep);
                 t += 8;
             }
             o += 8;
