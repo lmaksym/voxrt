@@ -211,6 +211,58 @@ pub unsafe fn gemv_dotprod(w: &TernaryMatrix, x: &QuantAct, y: &mut [f32]) {
     }
 }
 
+/// `gemv_dotprod` on `Layout::Rows8`: the eight rows of a block are interleaved per 16-byte chunk, so the kernel
+/// walks one sequential stream (hardware prefetch friendly) instead of eight. Same arithmetic.
+///
+/// # Safety
+/// As `gemv_dotprod`, with `w.layout == Layout::Rows8`.
+#[target_feature(enable = "neon,dotprod")]
+pub unsafe fn gemv_dotprod_rows8(w: &TernaryMatrix, x: &QuantAct, y: &mut [f32]) {
+    let (inp, g, out) = (w.inp, w.group, w.out);
+    let ng = inp / g;
+    let chunks = g / 16;
+    debug_assert!(x.n == 1 && g % 16 == 0 && y.len() >= out && inp % 16 == 0);
+    let xp = x.x.as_ptr();
+    let sx = x.scales_t.as_ptr();
+    let blocks = out.div_ceil(8);
+    for rb in 0..blocks {
+        let wp = w.w.as_ptr().add(rb * inp * 8);
+        let mut acc = [0f32; 8];
+        for gi in 0..ng {
+            let z = vdupq_n_s32(0);
+            let (mut s0, mut s1, mut s2, mut s3) = (z, z, z, z);
+            let (mut s4, mut s5, mut s6, mut s7) = (z, z, z, z);
+            for ck in 0..chunks {
+                let c = gi * chunks + ck;
+                let xv = vld1q_s8(xp.add(c * 16));
+                let p = wp.add(c * 128);
+                s0 = sdot(s0, vld1q_s8(p), xv);
+                s1 = sdot(s1, vld1q_s8(p.add(16)), xv);
+                s2 = sdot(s2, vld1q_s8(p.add(32)), xv);
+                s3 = sdot(s3, vld1q_s8(p.add(48)), xv);
+                s4 = sdot(s4, vld1q_s8(p.add(64)), xv);
+                s5 = sdot(s5, vld1q_s8(p.add(80)), xv);
+                s6 = sdot(s6, vld1q_s8(p.add(96)), xv);
+                s7 = sdot(s7, vld1q_s8(p.add(112)), xv);
+            }
+            let sums = [s0, s1, s2, s3, s4, s5, s6, s7];
+            let sxg = *sx.add(gi * x.n_pad);
+            for r in 0..8 {
+                let row = rb * 8 + r;
+                if row < out {
+                    let sw = *w.scales.get_unchecked(row * ng + gi);
+                    acc[r] = (vaddvq_s32(sums[r]) as f32).mul_add(sxg * sw, acc[r]);
+                }
+            }
+        }
+        for r in 0..8 {
+            if rb * 8 + r < out {
+                *y.get_unchecked_mut(rb * 8 + r) = acc[r];
+            }
+        }
+    }
+}
+
 /// # Safety
 /// Caller must have verified `dotprod` support (see `kernels::detect`).
 #[target_feature(enable = "neon,dotprod")]

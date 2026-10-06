@@ -15,6 +15,21 @@ pub enum Layout {
     /// byte `b`'s 2-bit field `j` is `code = trit + 1` of operand slab `4q + j`, position `b`. One 16-byte load unpacks
     /// (shift, and, sub) into the four `smmla` operands of the quad; 4× fewer weight bytes than `Pairs`.
     Packed2,
+    /// Blocks of 8 rows interleaved per 16-column chunk: for row block `rb`, chunk `c`: 128 bytes
+    /// `[w[8rb][16c..16c+16], …, w[8rb+7][16c..16c+16]]`. One sequential stream for the single-token GEMV
+    /// (decoder weights, 3c.17); rows padded to a multiple of 8.
+    Rows8,
+}
+
+impl Layout {
+    /// Bytes of the weight plane for an `[out, inp]` matrix in this layout.
+    pub fn plane_bytes(self, out: usize, inp: usize) -> usize {
+        match self {
+            Layout::Packed2 => out * inp / 4,
+            Layout::Rows8 => out.div_ceil(8) * 8 * inp,
+            _ => out * inp,
+        }
+    }
 }
 
 /// Ternary matrix `[out, in]` as int8 {-1,0,+1} plus f32 scales `[out, in/group]`.
@@ -47,6 +62,10 @@ impl TernaryMatrix {
         layout: Layout,
     ) -> Self {
         assert_eq!(inp % group, 0);
+        assert!(
+            layout != Layout::Rows8,
+            "Rows8 is for int8 row matrices (from_i8_rows)"
+        );
         assert!(layout == Layout::Rows || (out % 2 == 0 && inp % 8 == 0));
         assert!(layout != Layout::Packed2 || inp % 32 == 0);
         let rb = inp.div_ceil(5);
@@ -63,6 +82,7 @@ impl TernaryMatrix {
         for r in 0..out {
             unpack_row(&qweight[r * rb..(r + 1) * rb], inp, &mut row);
             match layout {
+                Layout::Rows8 => unreachable!("rejected above"),
                 Layout::Rows => w[r * inp..(r + 1) * inp].copy_from_slice(&row),
                 Layout::Pairs => {
                     let (rp, half) = (r / 2, r % 2);
@@ -111,12 +131,20 @@ impl TernaryMatrix {
         assert_eq!(rows.len(), out * inp);
         assert_eq!(scales.len(), out * (inp / group));
         assert!(layout != Layout::Packed2, "Packed2 is ternary-only");
-        let mut w = vec![0i8; out * inp];
+        assert!(layout != Layout::Rows8 || inp % 16 == 0);
+        let mut w = vec![0i8; layout.plane_bytes(out, inp)];
         for r in 0..out {
             let row = &rows[r * inp..(r + 1) * inp];
             match layout {
                 Layout::Rows => w[r * inp..(r + 1) * inp].copy_from_slice(row),
                 Layout::Packed2 => unreachable!("Packed2 is ternary-only"),
+                Layout::Rows8 => {
+                    let (rb, sub) = (r / 8, r % 8);
+                    for (c, chunk) in row.chunks_exact(16).enumerate() {
+                        let o = (rb * (inp / 16) + c) * 128 + sub * 16;
+                        w[o..o + 16].copy_from_slice(chunk);
+                    }
+                }
                 Layout::Pairs => {
                     let (rp, half) = (r / 2, r % 2);
                     for (sl, chunk) in row.chunks_exact(8).enumerate() {
@@ -147,6 +175,7 @@ impl TernaryMatrix {
         mut fill: F,
     ) -> Self {
         assert!(layout != Layout::Packed2, "Packed2 is ternary-only");
+        assert!(layout != Layout::Rows8, "Rows8: use from_i8_rows");
         assert!(layout == Layout::Rows || (out % 2 == 0 && inp % 8 == 0));
         assert_eq!(inp % group, 0);
         let ng = inp / group;
@@ -172,7 +201,7 @@ impl TernaryMatrix {
                         w[o..o + 8].copy_from_slice(&qrow[sl * 8..sl * 8 + 8]);
                     }
                 }
-                Layout::Packed2 => unreachable!(),
+                Layout::Packed2 | Layout::Rows8 => unreachable!(),
             }
         }
         Self {
@@ -190,6 +219,9 @@ impl TernaryMatrix {
     pub fn get(&self, r: usize, k: usize) -> i8 {
         match self.layout {
             Layout::Rows => self.w[r * self.inp + k],
+            Layout::Rows8 => {
+                self.w[((r / 8) * (self.inp / 16) + k / 16) * 128 + (r % 8) * 16 + k % 16]
+            }
             Layout::Pairs => self.w[((r / 2) * (self.inp / 8) + k / 8) * 16 + (r % 2) * 8 + k % 8],
             Layout::Packed2 => {
                 let (slab, pos) = (k / 8, k % 8);
@@ -254,7 +286,7 @@ impl QuantAct {
             // SAFETY: token t owns its scale slots and its bytes in `q` (row t, or its half of pair t/2); tasks are disjoint.
             let ds = unsafe { std::slice::from_raw_parts_mut((sp as *mut f32).add(t * ng), ng) };
             match layout {
-                Layout::Rows => {
+                Layout::Rows | Layout::Rows8 => {
                     let dq = unsafe {
                         std::slice::from_raw_parts_mut((qp as *mut i8).add(t * inp), inp)
                     };
@@ -344,7 +376,7 @@ impl QuantAct {
     #[inline]
     pub fn get(&self, t: usize, k: usize) -> i8 {
         match self.layout {
-            Layout::Rows => self.x[t * self.inp + k],
+            Layout::Rows | Layout::Rows8 => self.x[t * self.inp + k],
             Layout::Pairs | Layout::Packed2 => {
                 self.x[((t / 2) * (self.inp / 8) + k / 8) * 16 + (t % 2) * 8 + k % 8]
             }

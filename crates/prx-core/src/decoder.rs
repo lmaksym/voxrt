@@ -271,8 +271,11 @@ fn int8_rows(w_f16: &[u16], out: usize, inp: usize) -> TernaryMatrix {
     use half::f16;
     let group = 128;
     let ng = inp / group;
-    // row layout: single-token GEMVs run on the `sdot` GEMV kernel (3c.16), which wants contiguous rows
-    let layout = crate::packed::Layout::Rows;
+    // single-token GEMVs run on the `sdot` GEMV kernel (3c.16); on NEON the 8-row interleaved stream (3c.17)
+    let layout = match crate::kernels::kernel() {
+        crate::kernels::Kernel::Scalar => crate::packed::Layout::Rows,
+        _ => crate::packed::Layout::Rows8,
+    };
     let mut rows = vec![0i8; out * inp];
     let mut scales = vec![0f32; out * ng];
     let mut row = vec![0f32; inp];

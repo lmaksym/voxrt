@@ -285,6 +285,7 @@ fn gemv_equals_scalar_exactly() {
             .map(|_| (lcg(&mut seed) % 100) as f32 / 1000.0 + 0.001)
             .collect();
         let w = TernaryMatrix::from_i8_rows(&rows, &scales, out, inp, 128, Layout::Rows);
+        let w8 = TernaryMatrix::from_i8_rows(&rows, &scales, out, inp, 128, Layout::Rows8);
         let x: Vec<f32> = (0..inp)
             .map(|_| (lcg(&mut seed) % 2001) as f32 / 100.0 - 10.0)
             .collect();
@@ -297,8 +298,15 @@ fn gemv_equals_scalar_exactly() {
         for (v, b) in y_ref.iter_mut().zip(&bias) {
             *v += b;
         }
-        let mut y = vec![0f32; out];
-        gemm_single(&w, &qa, &mut y, Some(&bias));
-        assert_eq!(y, y_ref, "out={out} inp={inp} kernel={:?}", detect());
+        for (name, wm) in [("rows", &w), ("rows8", &w8)] {
+            for r in 0..out {
+                for k in 0..inp {
+                    assert_eq!(wm.get(r, k), rows[r * inp + k], "{name} get({r},{k})");
+                }
+            }
+            let mut y = vec![0f32; out];
+            gemm_single(wm, &qa, &mut y, Some(&bias));
+            assert_eq!(y, y_ref, "{name} out={out} inp={inp} kernel={:?}", detect());
+        }
     }
 }

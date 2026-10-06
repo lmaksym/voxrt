@@ -218,13 +218,19 @@ pub fn gemm_rows_range(
 pub fn gemm_single(w: &TernaryMatrix, x: &QuantAct, y: &mut [f32], bias: Option<&[f32]>) {
     #[cfg(target_arch = "aarch64")]
     if x.n == 1
-        && w.layout == Layout::Rows
-        && x.layout == Layout::Rows
+        && matches!(w.layout, Layout::Rows | Layout::Rows8)
+        && matches!(x.layout, Layout::Rows | Layout::Rows8) // activations in Rows8 are stored as Rows
         && w.group % 16 == 0
         && matches!(kernel(), Kernel::NeonDotprod | Kernel::NeonI8mm)
     {
         // SAFETY: both kernels imply dotprod; layouts and shape checked above.
-        unsafe { neon::gemv_dotprod(w, x, y) };
+        unsafe {
+            if w.layout == Layout::Rows8 {
+                neon::gemv_dotprod_rows8(w, x, y)
+            } else {
+                neon::gemv_dotprod(w, x, y)
+            }
+        };
         if let Some(b) = bias {
             for (v, b) in y[..w.out].iter_mut().zip(b) {
                 *v += b;

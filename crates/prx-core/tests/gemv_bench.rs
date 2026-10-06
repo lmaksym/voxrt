@@ -6,12 +6,13 @@ use std::time::Instant;
 #[test]
 #[ignore]
 fn single_token_gemv() {
-    let layout = prx_core::packed::Layout::Rows; // decoder matrices are row-major (GEMV path)
     let _ = kernel();
-    for &(out, inp, name) in &[
-        (8194usize, 640usize, "joint head"),
-        (2560, 640, "lstm gate matrix"),
-        (2560, 1280, "lstm fused ih|hh"),
+    use prx_core::packed::Layout;
+    for &(out, inp, name, layout) in &[
+        (8194usize, 640usize, "joint head rows", Layout::Rows),
+        (8194, 640, "joint head rows8", Layout::Rows8),
+        (2560, 640, "lstm gate rows", Layout::Rows),
+        (2560, 640, "lstm gate rows8", Layout::Rows8),
     ] {
         let rows: Vec<i8> = (0..out * inp).map(|i| ((i * 7919) % 255) as i8).collect();
         let scales = vec![0.01f32; out * inp / 128];
@@ -21,7 +22,7 @@ fn single_token_gemv() {
         let reps = 200;
         let t0 = Instant::now();
         for _ in 0..reps {
-            let q = QuantAct::quantize_layout(&x, 1, inp, 128, layout);
+            let q = QuantAct::quantize_layout(&x, 1, inp, 128, Layout::Rows);
             gemm_single(&w, &q, &mut y, None);
         }
         let per = t0.elapsed().as_secs_f64() / reps as f64;
