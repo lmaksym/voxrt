@@ -96,19 +96,40 @@ impl Transcriber {
         samples: &[f32],
         offset_s: f64,
     ) -> (Segment, Vec<Emission>, usize) {
+        let (proj, te) = self.encode_segment(samples);
+        self.decode_segment(proj, te, offset_s)
+    }
+
+    /// Frontend + encoder + encoder projection: the multi-threaded half of a segment.
+    pub(crate) fn encode_segment(&self, samples: &[f32]) -> (Vec<f32>, usize) {
         let profiling = std::env::var_os("PRX_PROFILE").is_some();
         let t0 = std::time::Instant::now();
         let (feats, t) = self.frontend.compute(samples);
         let t1 = std::time::Instant::now();
         let (enc, te) = self.encoder.forward(&feats, t, None, None);
-        let t2 = std::time::Instant::now();
         let proj = self.decoder.project_encoder(&enc, te);
-        let emissions = self.decoder.greedy(&proj, te, None);
         if profiling {
             eprintln!(
-                "pipeline profile: frontend {:.3}s · encoder {:.3}s · decoder {:.3}s ({} steps)",
+                "pipeline profile: frontend {:.3}s · encoder {:.3}s",
                 (t1 - t0).as_secs_f64(),
-                (t2 - t1).as_secs_f64(),
+                t1.elapsed().as_secs_f64()
+            );
+        }
+        (proj, te)
+    }
+
+    /// Greedy TDT decode + detokenise + timestamps: the single-threaded half of a segment.
+    pub(crate) fn decode_segment(
+        &self,
+        proj: Vec<f32>,
+        te: usize,
+        offset_s: f64,
+    ) -> (Segment, Vec<Emission>, usize) {
+        let t2 = std::time::Instant::now();
+        let emissions = self.decoder.greedy(&proj, te, None);
+        if std::env::var_os("PRX_PROFILE").is_some() {
+            eprintln!(
+                "pipeline profile: decoder {:.3}s ({} steps)",
                 t2.elapsed().as_secs_f64(),
                 emissions.len()
             );
@@ -167,24 +188,74 @@ impl Transcriber {
         words
     }
 
-    /// VAD-segmented long-form transcription through the streaming state machine (`longform::LongForm`), fed in
-    /// 10 s chunks so the result is identical to a live stream. Short inputs (≤ threshold) take the single-utterance path.
+    /// VAD-segmented long-form transcription. Segment boundaries come from the streaming state machine
+    /// (`longform::LongForm`, fed in 10 s chunks, so cuts are identical to a live stream); the segments are then run as a
+    /// two-stage pipeline: the multi-threaded encoder on this thread, the single-threaded decoder on a helper thread.
     pub fn transcribe_long(&self, samples: &[f32]) -> Transcript {
         let secs = samples.len() as f64 / 16000.0;
         if secs <= self.long_form_threshold_s {
             return self.transcribe_samples(samples);
         }
         let mut lf = crate::longform::LongForm::new(self);
+        lf.collect_only = true;
         for chunk in samples.chunks(10 * 16_000) {
             lf.push(chunk);
         }
         lf.flush();
-        let n_frames = samples.len() / self.samples_per_frame();
+        let ranges = lf.ranges.clone();
+        let spf = self.samples_per_frame();
+        let n_frames = samples.len() / spf;
+        let (tx, rx) = std::sync::mpsc::sync_channel::<(usize, Vec<f32>, usize, f64)>(2);
+        let decoded: Vec<(Segment, Vec<Emission>, usize)> = std::thread::scope(|sc| {
+            let dec = sc.spawn(move || {
+                let mut out = Vec::new();
+                while let Ok((start, proj, te, offset_s)) = rx.recv() {
+                    out.push((start, self.decode_segment(proj, te, offset_s)));
+                }
+                out
+            });
+            for &(a, b) in &ranges {
+                let (proj, te) = self.encode_segment(&samples[a..b]);
+                tx.send((a, proj, te, a as f64 / 16_000.0))
+                    .expect("decoder thread alive");
+            }
+            drop(tx);
+            dec.join().expect("decoder thread")
+        })
+        .into_iter()
+        .map(|(start, (seg, em, te))| {
+            let base_frame = start / spf;
+            (
+                seg,
+                em.into_iter()
+                    .map(|e| Emission {
+                        token: e.token,
+                        frame: e.frame + base_frame,
+                        duration: e.duration,
+                    })
+                    .collect(),
+                te,
+            )
+        })
+        .collect();
+        let mut segments = Vec::new();
+        let mut emissions = Vec::new();
+        for (seg, em, _) in decoded {
+            emissions.extend(em);
+            if !seg.text.is_empty() {
+                segments.push(seg);
+            }
+        }
+        let text = segments
+            .iter()
+            .map(|s| s.text.as_str())
+            .collect::<Vec<_>>()
+            .join(" ");
         Transcript {
-            text: lf.text(),
-            emissions: lf.emissions,
+            text,
+            emissions,
             n_frames,
-            segments: lf.segments,
+            segments,
         }
     }
 

@@ -17,6 +17,9 @@ pub struct LongForm<'a> {
     total: usize,    // absolute samples received
     pub segments: Vec<Segment>,
     pub emissions: Vec<Emission>,
+    /// When set, closed segments are recorded as absolute sample ranges in `ranges` instead of being transcribed.
+    pub collect_only: bool,
+    pub ranges: Vec<(usize, usize)>,
     pub max_pending: usize, // high-water mark of the audio buffer, samples (diagnostics)
 }
 
@@ -34,6 +37,8 @@ impl<'a> LongForm<'a> {
             total: 0,
             segments: Vec::new(),
             emissions: Vec::new(),
+            collect_only: false,
+            ranges: Vec::new(),
             max_pending: 0,
         }
     }
@@ -136,6 +141,16 @@ impl<'a> LongForm<'a> {
         let spf = self.spf();
         let (s0, s1) = (a * spf, (b * spf).min(self.pending.len()));
         let offset_s = (self.base_sample + s0) as f64 / 16_000.0;
+        if self.collect_only {
+            self.ranges
+                .push((self.base_sample + s0, self.base_sample + s1));
+            return Segment {
+                start: offset_s,
+                end: (self.base_sample + s1) as f64 / 16_000.0,
+                text: String::new(),
+                words: Vec::new(),
+            };
+        }
         let (seg, em, _) = self.tr.transcribe_one(&self.pending[s0..s1], offset_s);
         let base_frame = (self.base_sample + s0) / spf;
         self.emissions.extend(em.into_iter().map(|e| Emission {
