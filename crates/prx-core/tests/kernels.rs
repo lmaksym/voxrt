@@ -264,3 +264,41 @@ fn row_token_ranges_equal_scalar_exactly() {
         }
     }
 }
+
+/// Single-token GEMV (decoder shapes, row layout) is bit-identical to the scalar reference.
+#[test]
+fn gemv_equals_scalar_exactly() {
+    use prx_core::kernels::gemm_single;
+    use prx_core::packed::Layout;
+    let mut seed = 99u64;
+    for &(out, inp) in &[
+        (8194usize, 640usize),
+        (2560, 640),
+        (13, 128),
+        (8, 256),
+        (3, 128),
+    ] {
+        let rows: Vec<i8> = (0..out * inp)
+            .map(|_| (lcg(&mut seed) % 255) as i8)
+            .collect();
+        let scales: Vec<f32> = (0..out * inp / 128)
+            .map(|_| (lcg(&mut seed) % 100) as f32 / 1000.0 + 0.001)
+            .collect();
+        let w = TernaryMatrix::from_i8_rows(&rows, &scales, out, inp, 128, Layout::Rows);
+        let x: Vec<f32> = (0..inp)
+            .map(|_| (lcg(&mut seed) % 2001) as f32 / 100.0 - 10.0)
+            .collect();
+        let bias: Vec<f32> = (0..out)
+            .map(|_| (lcg(&mut seed) % 100) as f32 / 10.0)
+            .collect();
+        let qa = QuantAct::quantize(&x, 1, inp, 128);
+        let mut y_ref = vec![0f32; out];
+        gemm_scalar(&w, &qa, &mut y_ref, 0, out, Epilogue::Store);
+        for (v, b) in y_ref.iter_mut().zip(&bias) {
+            *v += b;
+        }
+        let mut y = vec![0f32; out];
+        gemm_single(&w, &qa, &mut y, Some(&bias));
+        assert_eq!(y, y_ref, "out={out} inp={inp} kernel={:?}", detect());
+    }
+}

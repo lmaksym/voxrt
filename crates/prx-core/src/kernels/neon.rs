@@ -144,6 +144,73 @@ unsafe fn tile_edge(
     }
 }
 
+/// Single-token GEMV on `Layout::Rows` (decoder joint head and LSTM gates, PLAN 3c.16): 8 rows per pass, each
+/// 16-byte chunk of `x` feeds eight independent `sdot` chains, so the loop is bound by loads and weight bandwidth
+/// rather than by a 4×4 tile three quarters empty. Same i32 group sums and the same `fma(sum, s_x·s_w, acc)` per
+/// group as every other kernel → bit-identical to `gemm_scalar`.
+///
+/// # Safety
+/// Caller must have verified `dotprod` support; `w.layout == x.layout == Layout::Rows`, `x.n == 1`.
+#[target_feature(enable = "neon,dotprod")]
+pub unsafe fn gemv_dotprod(w: &TernaryMatrix, x: &QuantAct, y: &mut [f32]) {
+    let (inp, g, out) = (w.inp, w.group, w.out);
+    let ng = inp / g;
+    let chunks = g / 16;
+    debug_assert!(x.n == 1 && g % 16 == 0 && y.len() >= out);
+    let xp = x.x.as_ptr();
+    let sx = x.scales_t.as_ptr(); // group gi of the single token lives at gi · n_pad
+    let mut o = 0;
+    while o + 8 <= out {
+        let wp: [*const i8; 8] = std::array::from_fn(|r| w.w.as_ptr().add((o + r) * inp));
+        let mut acc = [0f32; 8];
+        for gi in 0..ng {
+            let base = gi * g;
+            let z = vdupq_n_s32(0);
+            let (mut s0, mut s1, mut s2, mut s3) = (z, z, z, z);
+            let (mut s4, mut s5, mut s6, mut s7) = (z, z, z, z);
+            for ck in 0..chunks {
+                let off = base + ck * 16;
+                let xv = vld1q_s8(xp.add(off));
+                s0 = sdot(s0, vld1q_s8(wp[0].add(off)), xv);
+                s1 = sdot(s1, vld1q_s8(wp[1].add(off)), xv);
+                s2 = sdot(s2, vld1q_s8(wp[2].add(off)), xv);
+                s3 = sdot(s3, vld1q_s8(wp[3].add(off)), xv);
+                s4 = sdot(s4, vld1q_s8(wp[4].add(off)), xv);
+                s5 = sdot(s5, vld1q_s8(wp[5].add(off)), xv);
+                s6 = sdot(s6, vld1q_s8(wp[6].add(off)), xv);
+                s7 = sdot(s7, vld1q_s8(wp[7].add(off)), xv);
+            }
+            let sums = [s0, s1, s2, s3, s4, s5, s6, s7];
+            let sxg = *sx.add(gi * x.n_pad);
+            for r in 0..8 {
+                let sw = *w.scales.get_unchecked((o + r) * ng + gi);
+                acc[r] = (vaddvq_s32(sums[r]) as f32).mul_add(sxg * sw, acc[r]);
+            }
+        }
+        for r in 0..8 {
+            *y.get_unchecked_mut(o + r) = acc[r];
+        }
+        o += 8;
+    }
+    // tail rows one at a time, same arithmetic
+    while o < out {
+        let wp = w.w.as_ptr().add(o * inp);
+        let mut acc = 0f32;
+        for gi in 0..ng {
+            let base = gi * g;
+            let mut s = vdupq_n_s32(0);
+            for ck in 0..chunks {
+                let off = base + ck * 16;
+                s = sdot(s, vld1q_s8(wp.add(off)), vld1q_s8(xp.add(off)));
+            }
+            let sw = *w.scales.get_unchecked(o * ng + gi);
+            acc = (vaddvq_s32(s) as f32).mul_add(*sx.add(gi * x.n_pad) * sw, acc);
+        }
+        *y.get_unchecked_mut(o) = acc;
+        o += 1;
+    }
+}
+
 /// # Safety
 /// Caller must have verified `dotprod` support (see `kernels::detect`).
 #[target_feature(enable = "neon,dotprod")]

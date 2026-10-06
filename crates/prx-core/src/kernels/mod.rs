@@ -216,6 +216,22 @@ pub fn gemm_rows_range(
 
 /// Single-threaded `y[n, out]` = quantised `x` × `w`ᵀ (+ bias), for per-step decoder work where dispatch would dominate.
 pub fn gemm_single(w: &TernaryMatrix, x: &QuantAct, y: &mut [f32], bias: Option<&[f32]>) {
+    #[cfg(target_arch = "aarch64")]
+    if x.n == 1
+        && w.layout == Layout::Rows
+        && x.layout == Layout::Rows
+        && w.group % 16 == 0
+        && matches!(kernel(), Kernel::NeonDotprod | Kernel::NeonI8mm)
+    {
+        // SAFETY: both kernels imply dotprod; layouts and shape checked above.
+        unsafe { neon::gemv_dotprod(w, x, y) };
+        if let Some(b) = bias {
+            for (v, b) in y[..w.out].iter_mut().zip(b) {
+                *v += b;
+            }
+        }
+        return;
+    }
     let k = match (kernel(), w.layout, x.layout) {
         (Kernel::NeonI8mm, Layout::Pairs | Layout::Packed2, Layout::Pairs) => Kernel::NeonI8mm,
         (Kernel::NeonI8mm, Layout::Rows, Layout::Rows)

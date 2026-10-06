@@ -212,12 +212,18 @@ impl Decoder {
         let mut state = self.zero_state();
         let mut last = self.blank;
         let mut tf = 0usize;
+        // the prediction network depends only on (last, state): after a blank both are unchanged, so its output
+        // is reused instead of recomputed (identical arithmetic; ~1/4 of the greedy steps follow a blank)
+        let mut pred: Option<(Vec<f32>, LstmState)> = None;
         while tf < t {
             let mut symbols = 0;
             let mut dur;
             loop {
-                let (g, new_state) = self.pred_step(last, &state);
-                let logits = self.joint(&proj[tf * h..(tf + 1) * h], &g);
+                if pred.is_none() {
+                    pred = Some(self.pred_step(last, &state));
+                }
+                let (g, new_state) = pred.as_ref().unwrap();
+                let logits = self.joint(&proj[tf * h..(tf + 1) * h], g);
                 let k = Self::argmax(&logits[..self.vocab]);
                 let di = Self::argmax(&logits[self.vocab..]);
                 dur = self.durations[di];
@@ -237,6 +243,7 @@ impl Decoder {
                         frame: tf,
                         duration: dur,
                     });
+                    let (_, new_state) = pred.take().unwrap();
                     state = new_state;
                     last = k;
                 }
@@ -264,7 +271,8 @@ fn int8_rows(w_f16: &[u16], out: usize, inp: usize) -> TernaryMatrix {
     use half::f16;
     let group = 128;
     let ng = inp / group;
-    let layout = crate::kernels::kernel().int8_layout();
+    // row layout: single-token GEMVs run on the `sdot` GEMV kernel (3c.16), which wants contiguous rows
+    let layout = crate::packed::Layout::Rows;
     let mut rows = vec![0i8; out * inp];
     let mut scales = vec![0f32; out * ng];
     let mut row = vec![0f32; inp];
