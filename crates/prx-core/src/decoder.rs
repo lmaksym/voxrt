@@ -264,7 +264,7 @@ fn int8_rows(w_f16: &[u16], out: usize, inp: usize) -> TernaryMatrix {
     use half::f16;
     let group = 128;
     let ng = inp / group;
-    let layout = crate::kernels::kernel().layout();
+    let layout = crate::kernels::kernel().int8_layout();
     let mut rows = vec![0i8; out * inp];
     let mut scales = vec![0f32; out * ng];
     let mut row = vec![0f32; inp];

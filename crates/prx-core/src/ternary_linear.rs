@@ -117,7 +117,7 @@ impl TernaryLinear {
             TernaryLinear::F32 { .. } => ActIn::F32(x),
             TernaryLinear::Int8(m) => {
                 let t0 = std::time::Instant::now();
-                let q = QuantAct::quantize_layout(x, n, m.inp, m.group, m.layout);
+                let q = QuantAct::quantize_layout(x, n, m.inp, m.group, act_layout(m.layout));
                 QUANT_NS.fetch_add(t0.elapsed().as_nanos() as u64, Ordering::Relaxed);
                 ActIn::Int8(q)
             }
@@ -150,7 +150,7 @@ impl TernaryLinear {
             }
             TernaryLinear::Int8(m) => {
                 let t0 = std::time::Instant::now();
-                let q = QuantAct::from_rows(n, m.inp, m.group, m.layout, ln_row);
+                let q = QuantAct::from_rows(n, m.inp, m.group, act_layout(m.layout), ln_row);
                 QUANT_NS.fetch_add(t0.elapsed().as_nanos() as u64, Ordering::Relaxed);
                 ActIn::Int8(q)
             }
@@ -188,5 +188,13 @@ impl TernaryLinear {
     pub fn forward(&self, x: &[f32], n: usize, y: &mut [f32]) {
         let a = self.prepare(x, n);
         self.forward_prepared(&a, n, y)
+    }
+}
+
+/// Activation layout matching a weight layout (2-bit packed weights consume pair-interleaved int8 activations).
+fn act_layout(w: crate::packed::Layout) -> crate::packed::Layout {
+    match w {
+        crate::packed::Layout::Packed2 => crate::packed::Layout::Pairs,
+        l => l,
     }
 }

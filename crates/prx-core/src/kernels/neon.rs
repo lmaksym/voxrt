@@ -416,3 +416,114 @@ pub unsafe fn gemm_i8mm(
         gemm_i8mm_4x4(w, x, y, r8, r1, 0, n, ep);
     }
 }
+
+/// I8MM kernel on `Layout::Packed2` weights (PLAN 3c.10): one 16-byte load per row pair per quad unpacks into the four
+/// `smmla` operands of 32 columns (shift, and, subtract 1), so weight traffic per tile is a quarter of `Pairs`.
+/// Tokens are padded to a multiple of 8 by `QuantAct`, rows are multiples of 8 by the dispatcher → no edge tiles.
+///
+/// # Safety
+/// Caller must have verified `i8mm` support, `w.layout == Layout::Packed2`, `x.layout == Layout::Pairs`.
+#[target_feature(enable = "neon,i8mm")]
+pub unsafe fn gemm_i8mm_2bit(
+    w: &TernaryMatrix,
+    x: &QuantAct,
+    y: &mut [f32],
+    r0: usize,
+    r1: usize,
+    ep: Epilogue,
+) {
+    let (inp, g, out, n, n_pad) = (w.inp, w.group, w.out, x.n, x.n_pad);
+    let ng = inp / g;
+    let slabs = inp / 8;
+    let nq = inp / 32;
+    let gquads = g / 32;
+    debug_assert!(r0 % 8 == 0 && (r1 - r0) % 8 == 0 && g % 32 == 0);
+    const TCHUNK: usize = 32;
+    let mask3 = vdupq_n_u8(3);
+    let one = vdupq_n_s8(1);
+    let mut tc = 0;
+    while tc < n_pad {
+        let tc_end = (tc + TCHUNK).min(n_pad);
+        let mut o = r0;
+        while o < r1 {
+            let wp: [*const u8; 4] =
+                std::array::from_fn(|rp| (w.w.as_ptr() as *const u8).add((o / 2 + rp) * nq * 16));
+            let mut t = tc;
+            while t < tc_end {
+                let xp: [*const i8; 4] =
+                    std::array::from_fn(|tp| x.x.as_ptr().add((t / 2 + tp) * slabs * 16));
+                let z = vdupq_n_f32(0.0);
+                let mut f = [[z; 4]; 4];
+                for gi in 0..ng {
+                    let zi = vdupq_n_s32(0);
+                    let mut a = [[zi; 4]; 4];
+                    for qq in 0..gquads {
+                        let q = gi * gquads + qq;
+                        let mut wv = [[vdupq_n_s8(0); 4]; 4];
+                        for rp in 0..4 {
+                            let c = vld1q_u8(wp[rp].add(q * 16));
+                            wv[rp][0] = vsubq_s8(vreinterpretq_s8_u8(vandq_u8(c, mask3)), one);
+                            wv[rp][1] = vsubq_s8(
+                                vreinterpretq_s8_u8(vandq_u8(vshrq_n_u8(c, 2), mask3)),
+                                one,
+                            );
+                            wv[rp][2] = vsubq_s8(
+                                vreinterpretq_s8_u8(vandq_u8(vshrq_n_u8(c, 4), mask3)),
+                                one,
+                            );
+                            wv[rp][3] = vsubq_s8(vreinterpretq_s8_u8(vshrq_n_u8(c, 6)), one);
+                        }
+                        for j in 0..4 {
+                            let off = (q * 4 + j) * 16;
+                            let xv = [
+                                vld1q_s8(xp[0].add(off)),
+                                vld1q_s8(xp[1].add(off)),
+                                vld1q_s8(xp[2].add(off)),
+                                vld1q_s8(xp[3].add(off)),
+                            ];
+                            for rp in 0..4 {
+                                a[rp][0] = smmla(a[rp][0], wv[rp][j], xv[0]);
+                                a[rp][1] = smmla(a[rp][1], wv[rp][j], xv[1]);
+                                a[rp][2] = smmla(a[rp][2], wv[rp][j], xv[2]);
+                                a[rp][3] = smmla(a[rp][3], wv[rp][j], xv[3]);
+                            }
+                        }
+                    }
+                    let sxp = x.scales_t.as_ptr().add(gi * n_pad + t);
+                    let sx: [float32x4_t; 4] = std::array::from_fn(|tp| {
+                        let v = vld1_f32(sxp.add(2 * tp));
+                        vcombine_f32(v, v)
+                    });
+                    for rp in 0..4 {
+                        let sw0 = *w.scales.get_unchecked((o + 2 * rp) * ng + gi);
+                        let sw1 = *w.scales.get_unchecked((o + 2 * rp + 1) * ng + gi);
+                        let swv = vcombine_f32(vdup_n_f32(sw0), vdup_n_f32(sw1));
+                        for tp in 0..4 {
+                            f[rp][tp] = vfmaq_f32(
+                                f[rp][tp],
+                                vcvtq_f32_s32(a[rp][tp]),
+                                vmulq_f32(sx[tp], swv),
+                            );
+                        }
+                    }
+                }
+                for rp in 0..4 {
+                    for tp in 0..4 {
+                        let mut v = [0f32; 4];
+                        vst1q_f32(v.as_mut_ptr(), f[rp][tp]);
+                        for (l, val) in v.iter().enumerate() {
+                            let tt = t + 2 * tp + l % 2;
+                            if tt < n {
+                                let p = y.get_unchecked_mut(tt * out + o + 2 * rp + l / 2);
+                                *p = ep.apply(*p, *val);
+                            }
+                        }
+                    }
+                }
+                t += 8;
+            }
+            o += 8;
+        }
+        tc = tc_end;
+    }
+}

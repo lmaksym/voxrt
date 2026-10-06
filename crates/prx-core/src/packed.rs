@@ -11,6 +11,10 @@ pub enum Layout {
     /// Row pairs interleaved per 8-column slab for `smmla`: for pair `rp`, slab `s`: 16 bytes
     /// `[w[2rp][8s..8s+8], w[2rp+1][8s..8s+8]]`.
     Pairs,
+    /// `Pairs` packed 4 trits per byte (ternary only): for pair `rp`, quad `q` (4 slabs = 32 columns), 16 bytes where
+    /// byte `b`'s 2-bit field `j` is `code = trit + 1` of operand slab `4q + j`, position `b`. One 16-byte load unpacks
+    /// (shift, and, sub) into the four `smmla` operands of the quad; 4× fewer weight bytes than `Pairs`.
+    Packed2,
 }
 
 /// Ternary matrix `[out, in]` as int8 {-1,0,+1} plus f32 scales `[out, in/group]`.
@@ -44,9 +48,17 @@ impl TernaryMatrix {
     ) -> Self {
         assert_eq!(inp % group, 0);
         assert!(layout == Layout::Rows || (out % 2 == 0 && inp % 8 == 0));
+        assert!(layout != Layout::Packed2 || inp % 32 == 0);
         let rb = inp.div_ceil(5);
         let ng = inp / group;
-        let mut w = vec![0i8; out * inp];
+        let mut w = vec![
+            0i8;
+            if layout == Layout::Packed2 {
+                out * inp / 4
+            } else {
+                out * inp
+            }
+        ];
         let mut row = vec![0i8; inp];
         for r in 0..out {
             unpack_row(&qweight[r * rb..(r + 1) * rb], inp, &mut row);
@@ -57,6 +69,17 @@ impl TernaryMatrix {
                     for (sl, chunk) in row.chunks_exact(8).enumerate() {
                         let o = (rp * (inp / 8) + sl) * 16 + half * 8;
                         w[o..o + 8].copy_from_slice(chunk);
+                    }
+                }
+                Layout::Packed2 => {
+                    let (rp, half) = (r / 2, r % 2);
+                    let nq = inp / 32;
+                    for (k, &t) in row.iter().enumerate() {
+                        let (slab, pos) = (k / 8, k % 8);
+                        let (q, j) = (slab / 4, slab % 4);
+                        let b = half * 8 + pos;
+                        let o = (rp * nq + q) * 16 + b;
+                        w[o] |= (((t + 1) as u8) << (2 * j)) as i8;
                     }
                 }
             }
@@ -87,11 +110,13 @@ impl TernaryMatrix {
     ) -> Self {
         assert_eq!(rows.len(), out * inp);
         assert_eq!(scales.len(), out * (inp / group));
+        assert!(layout != Layout::Packed2, "Packed2 is ternary-only");
         let mut w = vec![0i8; out * inp];
         for r in 0..out {
             let row = &rows[r * inp..(r + 1) * inp];
             match layout {
                 Layout::Rows => w[r * inp..(r + 1) * inp].copy_from_slice(row),
+                Layout::Packed2 => unreachable!("Packed2 is ternary-only"),
                 Layout::Pairs => {
                     let (rp, half) = (r / 2, r % 2);
                     for (sl, chunk) in row.chunks_exact(8).enumerate() {
@@ -117,6 +142,12 @@ impl TernaryMatrix {
         match self.layout {
             Layout::Rows => self.w[r * self.inp + k],
             Layout::Pairs => self.w[((r / 2) * (self.inp / 8) + k / 8) * 16 + (r % 2) * 8 + k % 8],
+            Layout::Packed2 => {
+                let (slab, pos) = (k / 8, k % 8);
+                let (q, j) = (slab / 4, slab % 4);
+                let byte = self.w[((r / 2) * (self.inp / 32) + q) * 16 + (r % 2) * 8 + pos] as u8;
+                ((byte >> (2 * j)) & 3) as i8 - 1
+            }
         }
     }
 
@@ -185,7 +216,8 @@ impl QuantAct {
                         );
                     }
                 }
-                Layout::Pairs => {
+                Layout::Pairs | Layout::Packed2 => {
+                    // activations are never 2-bit packed: Packed2 weights consume `Pairs` activations
                     for g in 0..ng {
                         ds[g] = quantize_group(
                             &tmp[g * group..(g + 1) * group],
@@ -264,7 +296,9 @@ impl QuantAct {
     pub fn get(&self, t: usize, k: usize) -> i8 {
         match self.layout {
             Layout::Rows => self.x[t * self.inp + k],
-            Layout::Pairs => self.x[((t / 2) * (self.inp / 8) + k / 8) * 16 + (t % 2) * 8 + k % 8],
+            Layout::Pairs | Layout::Packed2 => {
+                self.x[((t / 2) * (self.inp / 8) + k / 8) * 16 + (t % 2) * 8 + k % 8]
+            }
         }
     }
 }

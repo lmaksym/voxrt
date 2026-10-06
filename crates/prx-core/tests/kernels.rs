@@ -112,6 +112,41 @@ fn epilogues_are_identical_across_kernels() {
 }
 
 #[test]
+fn packed2_equals_scalar_exactly() {
+    if detect() != Kernel::NeonI8mm {
+        eprintln!("no i8mm on this machine; skipped");
+        return;
+    }
+    let mut seed = 1234u64;
+    for &(out, inp) in &[(8usize, 128usize), (16, 256), (64, 1024), (136, 4096)] {
+        let (q, s16, _) = random_matrix(out, inp, &mut seed);
+        let w_rows = TernaryMatrix::from_packed_layout(&q, &s16, out, inp, 128, Layout::Rows);
+        let w2 = TernaryMatrix::from_packed_layout(&q, &s16, out, inp, 128, Layout::Packed2);
+        assert_eq!(w2.w.len(), out * inp / 4);
+        for r in 0..out {
+            for k in 0..inp {
+                assert_eq!(w_rows.get(r, k), w2.get(r, k), "r={r} k={k}");
+            }
+        }
+        for &n in &[1usize, 3, 8, 13, 40] {
+            let x: Vec<f32> = (0..n * inp)
+                .map(|_| (lcg(&mut seed) % 2001) as f32 / 100.0 - 10.0)
+                .collect();
+            let qa = QuantAct::quantize(&x, n, inp, 128);
+            let qp = QuantAct::quantize_layout(&x, n, inp, 128, Layout::Pairs);
+            for ep in [Epilogue::Store, Epilogue::AddScaled(0.5)] {
+                let base: Vec<f32> = (0..n * out).map(|i| (i % 5) as f32).collect();
+                let mut y_ref = base.clone();
+                gemm_scalar(&w_rows, &qa, &mut y_ref, 0, out, ep);
+                let mut y = base.clone();
+                gemm_ep(&w2, &qp, &mut y, None, ep);
+                assert_eq!(y, y_ref, "packed2 out={out} inp={inp} n={n} {ep:?}");
+            }
+        }
+    }
+}
+
+#[test]
 fn quantised_path_tracks_f32_path() {
     let mut seed = 7u64;
     let (out, inp, n) = (256usize, 1024usize, 16usize);

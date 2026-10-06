@@ -37,8 +37,19 @@ pub enum Kernel {
 }
 
 impl Kernel {
-    /// Weight layout this kernel consumes.
+    /// Weight layout this kernel consumes for ternary matrices (`PRX_WLAYOUT=pairs|2bit` overrides for I8MM).
     pub fn layout(self) -> Layout {
+        match self {
+            Kernel::NeonI8mm => match std::env::var("PRX_WLAYOUT").as_deref() {
+                Ok("pairs") => Layout::Pairs,
+                _ => Layout::Packed2,
+            },
+            _ => Layout::Rows,
+        }
+    }
+
+    /// Layout for non-ternary int8 matrices (decoder weights): never 2-bit.
+    pub fn int8_layout(self) -> Layout {
         match self {
             Kernel::NeonI8mm => Layout::Pairs,
             _ => Layout::Rows,
@@ -125,7 +136,13 @@ fn gemm_rows(
         #[cfg(target_arch = "aarch64")]
         Kernel::NeonDotprod => unsafe { neon::gemm_dotprod(w, x, y, r0, r1, ep) },
         #[cfg(target_arch = "aarch64")]
-        Kernel::NeonI8mm => unsafe { neon::gemm_i8mm(w, x, y, r0, r1, ep) },
+        Kernel::NeonI8mm => unsafe {
+            if w.layout == Layout::Packed2 {
+                neon::gemm_i8mm_2bit(w, x, y, r0, r1, ep)
+            } else {
+                neon::gemm_i8mm(w, x, y, r0, r1, ep)
+            }
+        },
         #[cfg(not(target_arch = "aarch64"))]
         Kernel::NeonDotprod | Kernel::NeonI8mm => gemm_scalar(w, x, y, r0, r1, ep),
     }
@@ -134,7 +151,7 @@ fn gemm_rows(
 /// Single-threaded `y[n, out]` = quantised `x` × `w`ᵀ (+ bias), for per-step decoder work where dispatch would dominate.
 pub fn gemm_single(w: &TernaryMatrix, x: &QuantAct, y: &mut [f32], bias: Option<&[f32]>) {
     let k = match (kernel(), w.layout, x.layout) {
-        (Kernel::NeonI8mm, Layout::Pairs, Layout::Pairs) => Kernel::NeonI8mm,
+        (Kernel::NeonI8mm, Layout::Pairs | Layout::Packed2, Layout::Pairs) => Kernel::NeonI8mm,
         (Kernel::NeonI8mm, Layout::Rows, Layout::Rows)
         | (Kernel::NeonDotprod, Layout::Rows, Layout::Rows) => Kernel::NeonDotprod,
         _ => Kernel::Scalar,
@@ -162,7 +179,7 @@ pub fn gemm_ep(w: &TernaryMatrix, x: &QuantAct, y: &mut [f32], bias: Option<&[f3
     debug_assert_eq!(y.len(), x.n * w.out);
     // the kernel must match the weight layout; degrade gracefully otherwise
     let k = match (kernel(), w.layout, x.layout) {
-        (Kernel::NeonI8mm, Layout::Pairs, Layout::Pairs) => Kernel::NeonI8mm,
+        (Kernel::NeonI8mm, Layout::Pairs | Layout::Packed2, Layout::Pairs) => Kernel::NeonI8mm,
         (Kernel::NeonI8mm, Layout::Rows, Layout::Rows) => Kernel::NeonDotprod,
         (Kernel::NeonDotprod, Layout::Rows, Layout::Rows) => Kernel::NeonDotprod,
         _ => Kernel::Scalar,

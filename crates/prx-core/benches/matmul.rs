@@ -29,7 +29,7 @@ criterion_main!(benches, benches_i8);
 
 fn bench_i8(c: &mut Criterion) {
     use prx_core::kernels::gemm;
-    use prx_core::packed::{QuantAct, TernaryMatrix};
+    use prx_core::packed::{Layout, QuantAct, TernaryMatrix};
     let layout = prx_core::kernels::kernel().layout();
     use prx_core::trits::pack_row;
     let mut g = c.benchmark_group(format!(
@@ -50,7 +50,17 @@ fn bench_i8(c: &mut Criterion) {
         let w = TernaryMatrix::from_packed_layout(&q, &s16, out, inp, 128, layout);
         for &n in &TOKENS {
             let x: Vec<f32> = (0..n * inp).map(|i| (i % 13) as f32 * 0.1 - 0.6).collect();
-            let qa = QuantAct::quantize_layout(&x, n, inp, 128, layout);
+            let qa = QuantAct::quantize_layout(
+                &x,
+                n,
+                inp,
+                128,
+                if layout == Layout::Packed2 {
+                    Layout::Pairs
+                } else {
+                    layout
+                },
+            );
             let mut y = vec![0f32; n * out];
             g.throughput(Throughput::Elements((n * out * inp) as u64));
             g.bench_with_input(BenchmarkId::new(format!("{out}x{inp}"), n), &n, |b, _| {
