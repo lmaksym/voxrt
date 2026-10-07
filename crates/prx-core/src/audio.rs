@@ -13,7 +13,11 @@ pub struct Audio {
 
 /// Decode a WAV file to mono f32 at its native rate.
 pub fn decode_wav(path: impl AsRef<Path>) -> Result<Audio> {
-    let b = std::fs::read(path)?;
+    decode_wav_bytes(&std::fs::read(path)?)
+}
+
+/// Decode WAV bytes (a file read into memory, or stdin) to mono f32 at the native rate.
+pub fn decode_wav_bytes(b: &[u8]) -> Result<Audio> {
     let bad = |m: &str| Error::Audio(m.to_string());
     if b.len() < 12 || &b[..4] != b"RIFF" || &b[8..12] != b"WAVE" {
         return Err(bad("not a RIFF/WAVE file"));
@@ -82,7 +86,15 @@ pub fn decode_wav(path: impl AsRef<Path>) -> Result<Audio> {
 
 /// Decode and convert to 16 kHz mono.
 pub fn read_wav(path: impl AsRef<Path>) -> Result<Audio> {
-    let a = decode_wav(path)?;
+    to_16k(decode_wav(path)?)
+}
+
+/// `read_wav` for in-memory WAV bytes.
+pub fn read_wav_bytes(b: &[u8]) -> Result<Audio> {
+    to_16k(decode_wav_bytes(b)?)
+}
+
+fn to_16k(a: Audio) -> Result<Audio> {
     if a.sample_rate == SAMPLE_RATE {
         return Ok(a);
     }

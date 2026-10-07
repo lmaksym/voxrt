@@ -327,6 +327,7 @@ version = "0.0.1"
 dependencies = [
  "anyhow",
  "prx-core",
+ "rayon",
  "serde_json",
 ]
 

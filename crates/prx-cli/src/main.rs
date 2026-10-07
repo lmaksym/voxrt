@@ -4,8 +4,34 @@ use std::path::PathBuf;
 use prx_core::format::{default_model_dir, ModelFile};
 use prx_core::transcriber::Transcriber;
 
+const HELP: &str = "prx — open-source runtime for moondream/parakeet-redux (ternary Parakeet-TDT), CPU, 25 languages
+
+USAGE
+  prx transcribe <FILE.wav | -> [options]     transcribe a WAV file (or WAV bytes on stdin with `-`)
+  prx batch MANIFEST.jsonl OUT.jsonl [options]  transcribe every {id, audio} row of a manifest (resumable)
+  prx inspect [MODEL_DIR]                       validate a model directory
+  prx version | --version
+  prx help | --help
+
+OPTIONS
+  --format txt|srt|json      output format (default txt)
+  --timestamps segment|word  include timestamps (txt: per line; json: words array; srt: always segments)
+  --model DIR                model directory (default: $PRX_MODEL_DIR or the repo's models/parakeet-redux)
+  --threads N                worker threads (default: all cores; also $RAYON_NUM_THREADS)
+  --precision int8|f32       int8 kernels (default) or the exact f32 reference path
+  --quiet                    no timing line on stderr
+
+AUDIO
+  WAV: PCM 8/16/24/32-bit or float, any sample rate, any channel count (mixed to mono, resampled to 16 kHz).
+  Audio longer than 30 s is cut at pauses by the built-in VAD (segments of 10–60 s), with segment and word timestamps.
+
+ENVIRONMENT
+  PRX_MODEL_DIR, RAYON_NUM_THREADS, PRX_VAD_MIN / PRX_VAD_MAX (segment length bounds in 80 ms frames),
+  PRX_PROFILE=1 (stage timings on stderr)
+";
+
 fn usage() -> ! {
-    eprintln!("usage: prx <version|inspect [DIR]|transcribe FILE.wav [--format txt|srt|json] [--timestamps segment|word] [--model DIR] [--precision f32|int8]|batch MANIFEST.jsonl OUT.jsonl [--model DIR]|trace GOLDEN_UTT_DIR [--model DIR]>");
+    eprint!("{HELP}");
     std::process::exit(2)
 }
 
@@ -32,8 +58,21 @@ fn model_dir(args: &[String]) -> PathBuf {
 
 fn main() -> anyhow::Result<()> {
     let args: Vec<String> = std::env::args().collect();
+    if let Some(n) = args
+        .iter()
+        .position(|a| a == "--threads")
+        .and_then(|i| args.get(i + 1))
+        .and_then(|v| v.parse::<usize>().ok())
+    {
+        rayon::ThreadPoolBuilder::new()
+            .num_threads(n)
+            .build_global()
+            .ok();
+    }
+    let quiet = args.iter().any(|a| a == "--quiet");
     match args.get(1).map(String::as_str) {
-        Some("version") | None => println!("prx {}", env!("CARGO_PKG_VERSION")),
+        Some("version") | Some("--version") => println!("prx {}", env!("CARGO_PKG_VERSION")),
+        Some("help") | Some("--help") | Some("-h") | None => print!("{HELP}"),
         Some("inspect") => {
             let dir = args
                 .get(2)
@@ -75,7 +114,13 @@ fn main() -> anyhow::Result<()> {
             let tr = Transcriber::load_with(model_dir(&args), precision(&args))?;
             let load = t0.elapsed().as_secs_f32();
             let t1 = std::time::Instant::now();
-            let a = prx_core::audio::read_wav(file)?;
+            let a = if file == "-" {
+                let mut b = Vec::new();
+                std::io::Read::read_to_end(&mut std::io::stdin().lock(), &mut b)?;
+                prx_core::audio::read_wav_bytes(&b)?
+            } else {
+                prx_core::audio::read_wav(file)?
+            };
             let r = tr.transcribe_long(&a.samples);
             let secs = t1.elapsed().as_secs_f32();
             match format {
@@ -128,6 +173,9 @@ fn main() -> anyhow::Result<()> {
                         println!("{}", r.text);
                     }
                 }
+            }
+            if quiet {
+                return Ok(());
             }
             eprintln!("{:?}/{:?} · load {load:.2}s · {:.2}s audio in {secs:.3}s ({:.1}× real time) · {} frames · {} tokens · {} segments", tr.encoder.precision, prx_core::kernels::kernel(), a.samples.len() as f32 / 16000.0, a.samples.len() as f32 / 16000.0 / secs, r.n_frames, r.emissions.len(), r.segments.len());
         }
