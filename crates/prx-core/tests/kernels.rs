@@ -189,11 +189,14 @@ fn accumulation_cannot_overflow() {
     let mut y = vec![0f32; 1];
     gemm(&w, &qa, &mut y, None);
     assert_eq!(y[0], (inp as f32) * 127.0);
-    assert_ne!(
-        detect(),
-        Kernel::Scalar,
-        "expected a SIMD kernel on this machine"
-    );
+    // every aarch64 target has NEON, so a scalar pick there means detection broke; x86 kernels are not written yet (3c.9)
+    if cfg!(target_arch = "aarch64") {
+        assert_ne!(
+            detect(),
+            Kernel::Scalar,
+            "expected a SIMD kernel on this machine"
+        );
+    }
 }
 
 /// The token-range entry used by the attention core (3c.8): any (row range, token range) of an int8 (non-ternary)
