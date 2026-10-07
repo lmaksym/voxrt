@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/prx-core", "crates/prx-cli"]
+members = ["crates/prx-core", "crates/prx-cli", "crates/prx-ffi"]
 
 [workspace.package]
 version = "0.0.1"

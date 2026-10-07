@@ -317,6 +317,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "prx-ffi"
+version = "0.0.1"
+dependencies = [
+ "prx-core",
+]
+
+[[package]]
 name = "quote"
 version = "1.0.47"
 source = "registry+https://github.com/rust-lang/crates.io-index"
