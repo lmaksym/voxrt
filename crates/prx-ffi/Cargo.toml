@@ -11,4 +11,4 @@ name = "prx"
 crate-type = ["cdylib", "staticlib"]
 
 [dependencies]
-prx-core = { version = "0.0.1", path = "../prx-core" }
+prx-core = { version = "0.1.0", path = "../prx-core" }

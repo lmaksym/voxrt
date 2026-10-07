@@ -73,5 +73,8 @@ fn segmentation_rules() {
     assert_eq!(s.len(), 1, "{s:?}");
     let long = vec![0.95f32; 1125];
     let s = segment(&long, &d);
-    assert!(s.len() >= 2 && s.iter().all(|x| x.end - x.start <= 750 + 2), "{s:?}");
+    assert!(
+        s.len() >= 2 && s.iter().all(|x| x.end - x.start <= 750 + 2),
+        "{s:?}"
+    );
 }

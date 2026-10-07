@@ -1,0 +1,48 @@
+name: release
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+jobs:
+  cli:
+    strategy:
+      matrix:
+        include:
+          - { os: ubuntu-latest, target: x86_64-unknown-linux-gnu }
+          - { os: macos-latest, target: aarch64-apple-darwin }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo build --release -p prx-cli -p prx-ffi
+      - run: |
+          mkdir -p dist
+          tar -C target/release -czf dist/prx-${{ github.ref_name }}-${{ matrix.target }}.tar.gz prx
+          tar -czf dist/libprx-${{ github.ref_name }}-${{ matrix.target }}.tar.gz -C target/release $(ls target/release | grep -E '^libprx\.(a|so|dylib)$') -C "$PWD" include/prx.h
+      - uses: actions/upload-artifact@v4
+        with: { name: cli-${{ matrix.target }}, path: dist/* }
+  wheels:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: PyO3/maturin-action@v1
+        with:
+          working-directory: bindings/python
+          command: build
+          args: --release -o ../../dist
+          manylinux: auto
+      - uses: actions/upload-artifact@v4
+        with: { name: wheels-${{ matrix.os }}, path: dist/*.whl }
+  publish:
+    needs: [cli, wheels]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { path: dist, merge-multiple: true }
+      - run: cd dist && sha256sum * > SHA256SUMS
+      - uses: softprops/action-gh-release@v2
+        with: { files: dist/*, generate_release_notes: true }

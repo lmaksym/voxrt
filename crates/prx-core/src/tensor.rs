@@ -532,7 +532,7 @@ const EXP_POLY: [f32; 6] = [1.0 / 120.0, 1.0 / 24.0, 1.0 / 6.0, 0.5, 1.0, 1.0];
 /// extends to the SiLU epilogue.
 #[inline]
 pub fn exp_poly(x: f32) -> f32 {
-    let x = x.max(-87.0).min(88.0);
+    let x = x.clamp(-87.0, 88.0);
     let n = (x * std::f32::consts::LOG2_E).round_ties_even();
     let r = (-n).mul_add(EXP_LN2_HI, x);
     let r = (-n).mul_add(EXP_LN2_LO, r);
@@ -555,7 +555,10 @@ pub fn sigmoid_fast(x: f32) -> f32 {
     1.0 / (1.0 + exp_poly(-x))
 }
 
-/// Vector `exp_poly` (see there). Safety: NEON only.
+/// Vector `exp_poly` (see there).
+///
+/// # Safety
+/// NEON only (baseline on aarch64).
 #[cfg(target_arch = "aarch64")]
 #[inline(always)]
 pub unsafe fn exp_v(x: std::arch::aarch64::float32x4_t) -> std::arch::aarch64::float32x4_t {
@@ -573,7 +576,10 @@ pub unsafe fn exp_v(x: std::arch::aarch64::float32x4_t) -> std::arch::aarch64::f
     vmulq_f32(p, vreinterpretq_f32_s32(e))
 }
 
-/// Vector SiLU, bit-identical to `silu_fast`. Safety: NEON only.
+/// Vector SiLU, bit-identical to `silu_fast`.
+///
+/// # Safety
+/// NEON only (baseline on aarch64).
 #[cfg(target_arch = "aarch64")]
 #[inline(always)]
 pub unsafe fn silu_v(x: std::arch::aarch64::float32x4_t) -> std::arch::aarch64::float32x4_t {
@@ -582,7 +588,10 @@ pub unsafe fn silu_v(x: std::arch::aarch64::float32x4_t) -> std::arch::aarch64::
     vdivq_f32(x, vaddq_f32(one, exp_v(vnegq_f32(x))))
 }
 
-/// Vector sigmoid, bit-identical to `sigmoid_fast`. Safety: NEON only.
+/// Vector sigmoid, bit-identical to `sigmoid_fast`.
+///
+/// # Safety
+/// NEON only (baseline on aarch64).
 #[cfg(target_arch = "aarch64")]
 #[inline(always)]
 pub unsafe fn sigmoid_v(x: std::arch::aarch64::float32x4_t) -> std::arch::aarch64::float32x4_t {

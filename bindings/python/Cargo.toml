@@ -11,5 +11,5 @@ name = "_prx"
 crate-type = ["cdylib"]
 
 [dependencies]
-prx-core = { version = "0.0.1", path = "../../crates/prx-core" }
+prx-core = { version = "0.1.0", path = "../../crates/prx-core" }
 pyo3 = { version = "0.23", features = ["extension-module", "abi3-py39"] }

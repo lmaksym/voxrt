@@ -10,7 +10,7 @@ name = "prx"
 path = "src/main.rs"
 
 [dependencies]
-prx-core = { version = "0.0.1", path = "../prx-core" }
+prx-core = { version = "0.1.0", path = "../prx-core" }
 anyhow = { workspace = true }
 serde_json = { workspace = true }
 rayon = { workspace = true }

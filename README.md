@@ -1,112 +1,107 @@
-# parakeet-redux-rs — open-source Rust runtime for Parakeet Redux
+# prx — fast, open runtime for Parakeet Redux
 
-> Working directory name. The public project name is still open (the brief says `<name>`).
-> Everything for this project lives in this folder. Knowledge (research notes, decisions,
-> benchmark write-ups) goes to the vault: `02-Projects/Parakeet Redux Rust Runtime.md`.
+> Working name `prx`; the public name is still to be chosen. Project brief and status history: [`docs/brief.md`](docs/brief.md).
 
-## Status (2026-10-05)
-- **Phase 0–1 done.** Python reference reproduces the card: LibriSpeech test-clean **WER 1.96** (leaderboard-exact scoring). Golden tensors dumped. See `PLAN.md`, `docs/decisions.md`.
-- **Phase 2 done.** Rust core (`crates/prx-core`) matches the Python reference token for token on all of test-clean (WER 1.96).
-- **Phase 3 gate passed.** Native ternary kernels (NEON I8MM/SDOT, 2-bit packed weights, int8 per-group activations, int8 attention core): WER 1.95 on test-clean; **79× real time on dev50 on an M4 Max CPU** (processing time only, back to back with Photon's 71×; 104× on a 27 s utterance vs Photon's 72×, 92× on 148 min of TED talks vs Photon's 65×) vs 28× sherpa-onnx int8, 18× onnx-asr int8, 13× parakeet.cpp q8_0 on the same machine, same method (parakeet-mlx runs the teacher on the Apple GPU at 357× on short clips and 67× on a 6 min talk; `bench/README.md`); Photon's transcripts are identical to ours after normalisation (`bench/run_all.py`, `docs/kernels.md`).
-- **Phase 4 gate passed.** VAD-segmented long-form with segment and word timestamps, streaming that equals offline by construction, any-rate/any-format WAV input. TED-LIUM 3 long-form (11 talks, 148 min): WER 2.55 (Photon on the same Mac 2.52, card 2.51), 92× real time.
-- Two findings worth sharing: the leaderboard's compound-merging alignment is worth 0.4 WER on this model, and HF's `ParakeetTokenizer.decode` collapses repeated tokens (a CTC habit that is wrong for TDT; +0.07 WER).
+**prx** runs [moondream/parakeet-redux](https://huggingface.co/moondream/parakeet-redux), the 1.58-bit ternary
+distillation of NVIDIA's `parakeet-tdt-0.6b-v3` (25 languages, 178 MB), on the CPU with native ternary kernels.
+Pure Rust, six small dependencies, Apache-2.0. C ABI, Python and Swift bindings, CLI. Long audio is segmented by
+the model's own VAD head, with segment and word timestamps and a streaming API whose output equals the offline one.
+
+| Apple M4 Max, same audio, processing time only | prx (CPU) | Photon (Moondream's runtime, CPU) |
+|---|---|---|
+| LibriSpeech test-clean, 2,620 utterances | **79× real time, WER 1.95** | 51×\*, WER 1.96 |
+| dev50 short clips | **78×** | 70× |
+| one 27 s utterance | **0.26 s (104×)** | 0.37 s (72×) |
+| TED-LIUM 3 long-form, 148 min | **92×, WER 2.55** | 65×, WER 2.52 |
+
+Same weights, same scoring (Open ASR Leaderboard normaliser + compound-merging alignment). The open runtimes of the
+teacher model (sherpa-onnx int8, onnx-asr int8, parakeet.cpp q8_0) are 3–6× slower on this machine. Method,
+versions and the full table: [`bench/README.md`](bench/README.md). \* Photon's test-clean pass ran on a loaded machine.
+
+## Install
 
 ```sh
-cargo build --release
-./target/release/prx inspect                      # validates models/parakeet-redux against ternary.json
-./target/release/prx transcribe golden/5694-64025-0000/audio.wav   # --precision int8 (default) | f32
-./target/release/prx transcribe talk.wav --timestamps word --format json   # long audio is VAD-segmented automatically
-scripts/wer.sh dev50                              # Rust CLI over a manifest + leaderboard-exact WER
-cargo test --release --workspace                  # unit tests + golden parity tests (skip if golden/ or models/ absent)
+# CLI (needs the model: git lfs clone https://huggingface.co/moondream/parakeet-redux models/parakeet-redux)
+cargo install --path crates/prx-cli          # or: cargo build --release → target/release/prx
+export PRX_MODEL_DIR=/path/to/parakeet-redux
+
+# Python
+pip install prx                               # wheel; or: cd bindings/python && maturin develop --release
+
+# Swift: scripts/build_xcframework.sh, then add bindings/swift as a local package
+# C: cargo build --release -p prx-ffi → target/release/libprx.{a,dylib}, header include/prx.h
 ```
 
-## What
-A fast, dependency-light, Apache-2.0 inference engine in Rust for
-[moondream/parakeet-redux](https://huggingface.co/moondream/parakeet-redux),
-a ternary-weight (1.58-bit) quantization-aware distillation of
-[nvidia/parakeet-tdt-0.6b-v3](https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3)
-(25-language ASR, ~178 MB).
+## Use
 
-## Why
-The weights are CC-BY-4.0, but the only runtime that executes them at full speed (Photon)
-depends on proprietary, non-redistributable kernels. We want an open engine that
-can be embedded in desktop, mobile and server apps, with CPU-first performance
-competitive with existing Parakeet runtimes.
-
-## Goals
-- Bit-exact-enough parity with the reference (target: LibriSpeech test-clean WER ~1.96)
-- Native ternary kernels: NEON (SDOT/I8MM), AVX2, AVX-512 VNNI; Metal later
-- Long-form transcription via the bundled VAD head, word timestamps, streaming
-- Pure Rust core, C ABI, Python and Swift bindings, CLI
-- No dependency on Python or PyTorch at runtime
-
-## Non-goals
-Training, fine-tuning, other model families (for now).
-
-## Model format
-Full spec with verified numbers: [`docs/model-format.md`](docs/model-format.md).
-Raw metadata from the model repo (fetched 2026-10-05): [`reference/`](reference/).
-
-Summary (`ternary.json`, format `thrush-ternary-v2`):
-- Ternary layers: `qweight` (U8, 5 trits/byte, base 3, LSD first) + `scales` (F16)
-- `w = scales[row, col // 128] * (code - 1)`, code ∈ {0,1,2}
-- 264 ternary tensors (11 per encoder layer × 24 layers: FF1/FF2 linears, q/k/v/o and
-  relative-k projections, pointwise convs 1/2), 603,979,776 params;
-  subsampling, depthwise convs, LSTM decoder, joint head and VAD head stay dense (23.3M params)
-
-## Plan
-Step-by-step checklist with gates: [`PLAN.md`](PLAN.md). Phase summary:
-1. **Reference** (Python, dev-only): dequantize to fp32, reproduce published WER,
-   dump per-layer golden tensors. → `reference-py/`
-2. **Rust core**: safetensors loader + format validation, NeMo-exact log-mel frontend,
-   FastConformer encoder (scalar fp32), TDT greedy decoder, tokenizer.
-   Gate: golden-tensor parity + WER match.
-3. **Kernels**: repack trits to 2-bit/int8 tiles at load, int8 activations per token,
-   SIMD matmuls via `std::arch` with runtime feature detection; evaluate LUT (T-MAC style).
-4. **Product features**: VAD segmentation, timestamps, streaming API, multithreading.
-5. **Bindings & release**: C ABI, PyO3, Swift package, CLI, reproducible benchmarks
-   vs parakeet.cpp, sherpa-onnx, parakeet-mlx.
-
-Targets to beat (from the model card, single utterance, LibriSpeech): Photon 113× real time
-on 8 Zen 5 cores (WER 1.94); 38× CPU / 43× GPU on an M2 Air. Incumbents on the same x86 box:
-parakeet.cpp q8_0 45×, sherpa-onnx int8 42×, onnx-asr int8 28×.
-
-## Clean-room policy
-Built only from the CC-BY model repo, NVIDIA NeMo and HF transformers (Apache-2.0),
-and public papers. No code, binaries or reverse engineering of proprietary runtimes.
-See [`PROVENANCE.md`](PROVENANCE.md).
-
-## Layout
-```
-parakeet-redux-rs/
-├── README.md          # this brief
-├── PLAN.md            # step-by-step checklist with phase gates (tick as you go)
-├── PROVENANCE.md      # clean-room policy and allowed sources
-├── docs/              # specs and design notes that belong with the code
-│   └── model-format.md
-├── reference/         # metadata fetched from the model repo (config.json, ternary.json, model card)
-├── reference-py/      # phase 1: Python dequant, eval, golden-tensor dumper (dev-only)
-├── crates/            # Rust workspace: prx-core (engine), prx-cli (`prx`)
-├── scripts/           # wer.sh
-├── third_party/       # vendored Open ASR Leaderboard normalizer (Apache-2.0)
-├── results/           # eval outputs (jsonl + .wer.txt)
-├── golden/            # per-layer golden tensors (gitignored)
-└── models/            # downloaded weights (gitignored)
+```sh
+prx transcribe talk.wav                                   # WAV: any rate, any channels, PCM or float
+prx transcribe talk.wav --timestamps word --format json   # segments + words; --format srt for subtitles
+cat talk.wav | prx transcribe - --quiet                   # stdin
+prx transcribe talk.wav --threads 4 --precision f32       # exact fp32 reference path
 ```
 
-## Local environment (this Mac)
-Apple M4 Max (arm64, NEON with SDOT/I8MM), rustc/cargo 1.95.0, Python 3.12.7.
-x86 (AVX2 / AVX-512 VNNI) kernels need a separate box or CI runner.
+```python
+import prx
+t = prx.Transcriber("/path/to/parakeet-redux")
+r = t.transcribe("talk.wav")                 # or t.transcribe(samples, sample_rate=48000) with a numpy array
+print(r.text)
+for s in r.segments:
+    print(f"[{s['start']:.2f}–{s['end']:.2f}] {s['text']}")   # s['words'] has word timestamps
+st = t.stream()
+for chunk in audio_chunks_16k: segments += st.push(chunk)   # same cuts as offline, by construction
+segments += st.flush()
+```
 
-## References
-- Model: https://huggingface.co/moondream/parakeet-redux
-- Teacher: https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3
-- Release post: https://moondream.ai/blog/introducing-parakeet-redux-and-ultra
-- NeMo: https://github.com/NVIDIA/NeMo
-- TDT: Xu et al., "Efficient Sequence Transduction by Jointly Predicting Tokens and Durations", arXiv:2304.06795
-- FastConformer: Rekesh et al., arXiv:2305.05084
-- BitNet b1.58: Ma et al., arXiv:2402.17764
-- T-MAC: Wei et al., arXiv:2407.00088
+```swift
+import Prx
+let t = try Transcriber(modelDir: "/path/to/parakeet-redux")
+print(try t.transcribe(path: "talk.wav").text)
+```
+
+```c
+PrxTranscriber *t = prx_new("/path/to/parakeet-redux");
+PrxTranscript *r = prx_transcribe_file(t, "talk.wav");
+printf("%s\n", r->text);  prx_transcript_free(r);  prx_free(t);
+```
+
+## How it works
+
+- **Kernels.** Ternary weights are repacked at load into 2-bit planes (429 MB resident), activations are quantised
+  to int8 per token and 128-column group, and the GEMMs run on NEON `smmla` (I8MM) or `sdot` tiles. The attention
+  core, softmax and context product are int8 too. Every SIMD kernel is bit-identical to a scalar reference (tested).
+  x86 kernels (AVX-512 VNNI / AVX2) are the next port; the scalar path works everywhere.
+- **Decoder.** TDT greedy with NeMo's exact semantics; int8 joint head and LSTM through an `sdot` GEMV.
+- **Long-form.** The model's VAD head cuts at pauses into 10–60 s segments; the encoder (all cores) overlaps with
+  the decoder (one core). Streaming feeds the same segment automaton, so streaming output equals offline output.
+- **Accuracy.** fp32 path: token-identical to the Python reference on all of LibriSpeech test-clean (WER 1.96 = card).
+  int8: WER 1.95; the texts that differ from fp32 are near-ties the quantised model gets right as often as fp32,
+  the same deviation pattern Photon shows. Details: [`docs/kernels.md`](docs/kernels.md), [`docs/vad.md`](docs/vad.md),
+  [`docs/decisions.md`](docs/decisions.md).
+
+## Limits
+
+- The model: a distilled 1.58-bit student. On clean read speech it is ~0.4 WER behind its teacher; the card reports a
+  larger gap on noisy audio. prx does not change that.
+- English-centric evaluation so far (LibriSpeech, TED-LIUM); the model covers 25 languages and prx decodes them,
+  but we have not scored them.
+- Streaming latency: the first segment arrives once the following pause is known (≥ 10 s of speech).
+- Peak memory ~1.6 GB on a 20-minute talk (segment-sized buffers; to trim), 0.45 GB on short clips.
+- Apple Silicon is the measured platform; x86 runs on the scalar path until the VNNI kernels land.
+
+## Development
+
+```sh
+cargo test --release                          # unit + golden-parity tests (skip without golden/ and models/)
+scripts/wer.sh dev50 | test-clean             # leaderboard-exact WER through the CLI
+bench/.venv/bin/python bench/run_all.py       # same-machine benchmark of all runtimes
+scripts/c_smoke.sh · examples/python_smoke.py · swift run PrxSmoke    # binding smoke tests
+```
+
+Plan and progress: [`PLAN.md`](PLAN.md). Clean-room policy: [`PROVENANCE.md`](PROVENANCE.md) — built only from the
+CC-BY model repo, NeMo, HF transformers and public papers; Moondream's runtime is used only as a black-box benchmark.
 
 ## Credits
-Model weights © NVIDIA and M87 Labs (Moondream), CC-BY-4.0.
+
+Model weights © NVIDIA and M87 Labs (Moondream), CC-BY-4.0. Text normaliser vendored from the Open ASR Leaderboard
+(Apache-2.0). Papers: TDT (arXiv:2304.06795), FastConformer (arXiv:2305.05084), BitNet b1.58 (arXiv:2402.17764).

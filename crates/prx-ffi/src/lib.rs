@@ -205,7 +205,10 @@ pub unsafe extern "C" fn prx_transcribe(
 
 /// Transcribe a WAV file (PCM 8/16/24/32-bit or float, any rate, any channel count). Returns NULL on error.
 #[no_mangle]
-pub unsafe extern "C" fn prx_transcribe_file(t: *const PrxTranscriber, path: *const c_char) -> *mut PrxTranscript {
+pub unsafe extern "C" fn prx_transcribe_file(
+    t: *const PrxTranscriber,
+    path: *const c_char,
+) -> *mut PrxTranscript {
     if t.is_null() || path.is_null() {
         set_error("NULL argument");
         return ptr::null_mut();
@@ -224,7 +227,12 @@ pub unsafe extern "C" fn prx_transcribe_file(t: *const PrxTranscriber, path: *co
             return ptr::null_mut();
         }
     };
-    prx_transcribe(t, audio.samples.as_ptr(), audio.samples.len(), audio.sample_rate)
+    prx_transcribe(
+        t,
+        audio.samples.as_ptr(),
+        audio.samples.len(),
+        audio.sample_rate,
+    )
 }
 
 /// Free a transcript.
@@ -254,7 +262,11 @@ pub unsafe extern "C" fn prx_stream_new(t: *const PrxTranscriber) -> *mut PrxStr
 
 /// Push 16 kHz mono samples; returns the segments finalised by this call (possibly none: `n_segments == 0`).
 #[no_mangle]
-pub unsafe extern "C" fn prx_stream_push(s: *mut PrxStream, samples: *const f32, n_samples: usize) -> *mut PrxTranscript {
+pub unsafe extern "C" fn prx_stream_push(
+    s: *mut PrxStream,
+    samples: *const f32,
+    n_samples: usize,
+) -> *mut PrxTranscript {
     if s.is_null() || (samples.is_null() && n_samples > 0) {
         set_error("NULL argument");
         return ptr::null_mut();
@@ -263,7 +275,11 @@ pub unsafe extern "C" fn prx_stream_push(s: *mut PrxStream, samples: *const f32,
     let x = std::slice::from_raw_parts(samples, n_samples);
     match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| st.inner.push(x))) {
         Ok(segs) => {
-            let text = segs.iter().map(|s| s.text.as_str()).collect::<Vec<_>>().join(" ");
+            let text = segs
+                .iter()
+                .map(|s| s.text.as_str())
+                .collect::<Vec<_>>()
+                .join(" ");
             build_transcript(text, segs, n_samples as f64 / 16_000.0)
         }
         Err(_) => {
@@ -283,7 +299,11 @@ pub unsafe extern "C" fn prx_stream_flush(s: *mut PrxStream) -> *mut PrxTranscri
     let st = &mut *s;
     match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| st.inner.flush())) {
         Ok(segs) => {
-            let text = segs.iter().map(|s| s.text.as_str()).collect::<Vec<_>>().join(" ");
+            let text = segs
+                .iter()
+                .map(|s| s.text.as_str())
+                .collect::<Vec<_>>()
+                .join(" ");
             build_transcript(text, segs, 0.0)
         }
         Err(_) => {

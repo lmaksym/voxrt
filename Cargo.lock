@@ -323,7 +323,7 @@ dependencies = [
 
 [[package]]
 name = "prx-cli"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "anyhow",
  "prx-core",
@@ -333,7 +333,7 @@ dependencies = [
 
 [[package]]
 name = "prx-core"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "anyhow",
  "criterion",
@@ -349,14 +349,14 @@ dependencies = [
 
 [[package]]
 name = "prx-ffi"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "prx-core",
 ]
 
 [[package]]
 name = "prx-python"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "prx-core",
  "pyo3",

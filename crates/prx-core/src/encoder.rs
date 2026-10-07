@@ -495,9 +495,9 @@ fn attn_core_int8(
                 let mut qp = QuantAct::from_rows(rows, t16, t16, layout, |r, row| {
                     row.copy_from_slice(&probs[r * t16..(r + 1) * t16])
                 });
-                for r in 0..rows {
-                    qp.scales[r] *= inv_sum[r];
-                    qp.scales_t[r] *= inv_sum[r];
+                for (r, inv) in inv_sum.iter().enumerate().take(rows) {
+                    qp.scales[r] *= inv;
+                    qp.scales_t[r] *= inv;
                 }
                 gemm_rows_range(v, &qp, out, 0, dh, 0, rows, Epilogue::Store);
             } else {

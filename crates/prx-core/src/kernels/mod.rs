@@ -21,6 +21,9 @@ pub enum Epilogue {
 impl Epilogue {
     /// Vector pre-pass: elementwise epilogues (SiLU) are applied on the whole register before the scatter, which
     /// then stores plainly; `AddScaled` needs the old values and stays per lane.
+    ///
+    /// # Safety
+    /// NEON only (baseline on aarch64).
     #[cfg(target_arch = "aarch64")]
     #[inline(always)]
     pub unsafe fn apply_v(

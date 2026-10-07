@@ -51,7 +51,12 @@ impl PyTranscript {
         segments_py(py, &self.segments)
     }
     fn __repr__(&self) -> String {
-        format!("Transcript({:?}, {} segments, {:.1} s)", self.text, self.segments.len(), self.duration)
+        format!(
+            "Transcript({:?}, {} segments, {:.1} s)",
+            self.text,
+            self.segments.len(),
+            self.duration
+        )
     }
     fn __str__(&self) -> String {
         self.text.clone()
@@ -69,7 +74,9 @@ fn samples_from(audio: &Bound<'_, PyAny>, sample_rate: u32) -> PyResult<Vec<f32>
         PyValueError::new_err("audio must be a path or float32 sample bytes (use prx.Transcriber.transcribe with an array)")
     })?;
     if b.len() % 4 != 0 {
-        return Err(PyValueError::new_err("sample bytes length is not a multiple of 4"));
+        return Err(PyValueError::new_err(
+            "sample bytes length is not a multiple of 4",
+        ));
     }
     let x: Vec<f32> = b
         .chunks_exact(4)
@@ -96,16 +103,19 @@ impl PyTranscriber {
         let dir = model_dir
             .map(std::path::PathBuf::from)
             .unwrap_or_else(prx_core::format::default_model_dir);
-        let inner = py
-            .allow_threads(|| Transcriber::load(&dir))
-            .map_err(err)?;
+        let inner = py.allow_threads(|| Transcriber::load(&dir)).map_err(err)?;
         Ok(Self { inner })
     }
 
     /// Transcribe a WAV path or an array of mono samples (`sample_rate` for arrays; resampled to 16 kHz).
     /// Long audio is VAD-segmented automatically. Releases the GIL while running.
     #[pyo3(signature = (audio, sample_rate=16000))]
-    fn transcribe(&self, py: Python<'_>, audio: &Bound<'_, PyAny>, sample_rate: u32) -> PyResult<PyTranscript> {
+    fn transcribe(
+        &self,
+        py: Python<'_>,
+        audio: &Bound<'_, PyAny>,
+        sample_rate: u32,
+    ) -> PyResult<PyTranscript> {
         let x = samples_from(audio, sample_rate)?;
         let r = py.allow_threads(|| self.inner.transcribe_long(&x));
         Ok(PyTranscript {
@@ -143,7 +153,11 @@ pub struct PyStream {
 
 #[pymethods]
 impl PyStream {
-    fn push<'py>(&self, py: Python<'py>, samples: &Bound<'py, PyAny>) -> PyResult<Vec<Bound<'py, PyDict>>> {
+    fn push<'py>(
+        &self,
+        py: Python<'py>,
+        samples: &Bound<'py, PyAny>,
+    ) -> PyResult<Vec<Bound<'py, PyDict>>> {
         let x = samples_from(samples, 16_000)?;
         let segs = py.allow_threads(|| self.inner.lock().unwrap().push(&x));
         segments_py(py, &segs)
