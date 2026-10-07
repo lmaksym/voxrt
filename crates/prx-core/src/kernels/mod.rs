@@ -137,6 +137,23 @@ pub fn gemm_scalar_range(
 ) {
     let (inp, g) = (w.inp, w.group);
     let ng = inp / g;
+    if w.layout == Layout::Rows && matches!(x.layout, Layout::Rows | Layout::Rows8) {
+        // contiguous slices: the per-element `get` layout match blocks auto-vectorisation (x86-64 ran ~50× slower)
+        for o in r0..r1 {
+            let wr = &w.w[o * inp..(o + 1) * inp];
+            for t in t0..t1 {
+                let xr = &x.x[t * inp..(t + 1) * inp];
+                let mut acc = 0f32;
+                for (gi, (wg, xg)) in wr.chunks_exact(g).zip(xr.chunks_exact(g)).enumerate() {
+                    let s: i32 = wg.iter().zip(xg).map(|(&a, &b)| a as i32 * b as i32).sum();
+                    acc = (s as f32).mul_add(x.scales[t * ng + gi] * w.scales[o * ng + gi], acc);
+                }
+                let slot = &mut y[t * w.out + o];
+                *slot = ep.apply(*slot, acc);
+            }
+        }
+        return;
+    }
     for o in r0..r1 {
         for t in t0..t1 {
             let mut acc = 0f32;

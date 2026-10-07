@@ -44,9 +44,9 @@ fn hz_to_mel(f: f64) -> f64 {
     let f_sp = 200.0 / 3.0;
     let min_log_hz = 1000.0;
     let min_log_mel = min_log_hz / f_sp;
-    let logstep = (6.4f64).ln() / 27.0;
+    let logstep = libm::log(6.4) / 27.0;
     if f >= min_log_hz {
-        min_log_mel + (f / min_log_hz).ln() / logstep
+        min_log_mel + libm::log(f / min_log_hz) / logstep
     } else {
         f / f_sp
     }
@@ -56,9 +56,9 @@ fn mel_to_hz(m: f64) -> f64 {
     let f_sp = 200.0 / 3.0;
     let min_log_hz = 1000.0;
     let min_log_mel = min_log_hz / f_sp;
-    let logstep = (6.4f64).ln() / 27.0;
+    let logstep = libm::log(6.4) / 27.0;
     if m >= min_log_mel {
-        min_log_hz * (logstep * (m - min_log_mel)).exp()
+        min_log_hz * libm::exp(logstep * (m - min_log_mel))
     } else {
         f_sp * m
     }
@@ -91,7 +91,7 @@ impl Frontend {
         let n = cfg.win_length;
         // torch.hann_window(n, periodic=False): 0.5 - 0.5 cos(2π k / (n-1))
         let window = (0..n)
-            .map(|k| 0.5 - 0.5 * (2.0 * std::f64::consts::PI * k as f64 / (n - 1) as f64).cos())
+            .map(|k| 0.5 - 0.5 * libm::cos(2.0 * std::f64::consts::PI * k as f64 / (n - 1) as f64))
             .map(|v| v as f32)
             .collect();
         let filterbank = slaney_mel_filterbank(cfg.sample_rate, cfg.n_fft, cfg.n_mels);
@@ -158,7 +158,7 @@ impl Frontend {
                         for (w, p) in fbm.iter().zip(&power) {
                             acc += *w as f64 * *p as f64;
                         }
-                        *o = (acc as f32 + LOG_ZERO_GUARD).ln();
+                        *o = libm::logf(acc as f32 + LOG_ZERO_GUARD);
                     }
                 }
             });

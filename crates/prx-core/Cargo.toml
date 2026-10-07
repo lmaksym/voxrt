@@ -13,6 +13,7 @@ safetensors = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 realfft = { workspace = true }
+libm = { workspace = true }
 rayon = { workspace = true }
 thiserror = { workspace = true }
 

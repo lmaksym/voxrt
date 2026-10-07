@@ -74,7 +74,7 @@ impl VadHead {
             for o in 0..h {
                 z += self.out_w[o] * hbuf[o];
             }
-            p[i] = 1.0 / (1.0 + (-z).exp());
+            p[i] = 1.0 / (1.0 + libm::expf(-z));
         }
         p
     }

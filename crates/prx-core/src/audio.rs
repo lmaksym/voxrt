@@ -123,10 +123,13 @@ pub fn resample(x: &[f32], from: u32, to: u32) -> Vec<f32> {
             let sinc = if n == 0.0 {
                 2.0 * cutoff
             } else {
-                (2.0 * std::f64::consts::PI * cutoff * n).sin() / (std::f64::consts::PI * n)
+                libm::sin(2.0 * std::f64::consts::PI * cutoff * n) / (std::f64::consts::PI * n)
             };
-            let w =
-                bessel_i0(beta * (1.0 - (n / taps_per_side as f64).powi(2)).max(0.0).sqrt()) / i0b;
+            let w = bessel_i0(
+                beta * (1.0 - (n / taps_per_side as f64) * (n / taps_per_side as f64))
+                    .max(0.0)
+                    .sqrt(),
+            ) / i0b;
             sinc * w * up as f64
         })
         .collect();

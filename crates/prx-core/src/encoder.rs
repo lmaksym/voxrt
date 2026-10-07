@@ -262,7 +262,7 @@ impl Attention {
                 }
                 let mut sum = 0f32;
                 for sv in row.iter_mut() {
-                    *sv = (*sv - max).exp();
+                    *sv = libm::expf(*sv - max);
                     sum += *sv;
                 }
                 let inv = 1.0 / sum;
@@ -762,14 +762,14 @@ pub fn rel_pos_table(t: usize, d: usize) -> Vec<f32> {
     let half = d / 2;
     let mut out = vec![0f32; np * d];
     let inv: Vec<f32> = (0..half)
-        .map(|i| 1.0 / 10000f32.powf(2.0 * i as f32 / d as f32))
+        .map(|i| 1.0 / libm::powf(10000.0, 2.0 * i as f32 / d as f32))
         .collect();
     for (r, row) in out.chunks_exact_mut(d).enumerate() {
         let pos = (t as i64 - 1 - r as i64) as f32;
         for i in 0..half {
             let f = inv[i] * pos;
-            row[2 * i] = f.sin();
-            row[2 * i + 1] = f.cos();
+            row[2 * i] = libm::sinf(f);
+            row[2 * i + 1] = libm::cosf(f);
         }
     }
     out

@@ -162,10 +162,10 @@ impl Decoder {
             for k in 0..h {
                 let i = sigmoid(gates[k]);
                 let f = sigmoid(gates[h + k]);
-                let g = gates[2 * h + k].tanh();
+                let g = libm::tanhf(gates[2 * h + k]);
                 let o = sigmoid(gates[3 * h + k]);
                 cn[k] = f * cp[k] + i * g;
-                hn[k] = o * cn[k].tanh();
+                hn[k] = o * libm::tanhf(cn[k]);
             }
             x = hn.clone();
         }

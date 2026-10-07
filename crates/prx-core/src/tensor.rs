@@ -108,11 +108,141 @@ pub fn tile_f32(
         return;
     }
     #[allow(unreachable_code)]
-    for (ti, row) in x.chunks_exact(in_f).take(toks).enumerate() {
-        for o in 0..out_f {
-            y[ti * out_f + o] = dot(row, &w[o * in_f..(o + 1) * in_f]) + b.map_or(0.0, |b| b[o]);
+    tile_rows_portable(x, toks, in_f, w, b, out_f, y)
+}
+
+// Portable mirrors of the NEON reductions below: same lane split, fused multiply-adds, `vaddvq_f32` order
+// ((l0 + l1) + (l2 + l3)) and tails, so x86 and aarch64 give the same bits (checked by `portable_tests`).
+
+#[inline]
+fn hsum4(a: [f32; 4]) -> f32 {
+    (a[0] + a[1]) + (a[2] + a[3])
+}
+
+/// Mirror of `tile_rows_neon`: per (row, token) four fused lanes over 4-column steps, a separate scalar tail.
+pub(crate) fn tile_rows_portable(
+    x: &[f32],
+    toks: usize,
+    in_f: usize,
+    w: &[f32],
+    b: Option<&[f32]>,
+    out_f: usize,
+    y: &mut [f32],
+) {
+    let c4 = in_f / 4 * 4;
+    for o in 0..out_f {
+        let wr = &w[o * in_f..(o + 1) * in_f];
+        for tk in 0..toks {
+            let xr = &x[tk * in_f..(tk + 1) * in_f];
+            let mut acc = [0f32; 4];
+            for c in (0..c4).step_by(4) {
+                for l in 0..4 {
+                    acc[l] = wr[c + l].mul_add(xr[c + l], acc[l]);
+                }
+            }
+            let mut tail = 0f32;
+            for c in c4..in_f {
+                tail += wr[c] * xr[c];
+            }
+            y[tk * out_f + o] = hsum4(acc) + tail + b.map_or(0.0, |b| b[o]);
         }
     }
+}
+
+/// Mirror of the 2 × 4-lane dot in `gemv_neon` / `gemv_f16_neon`: fused lanes over 8-column steps, lane-wise
+/// `a + b`, horizontal add, then the tail added in order.
+#[inline]
+#[allow(clippy::needless_range_loop)]
+fn dot_lanes8(x: &[f32], w: impl Fn(usize) -> f32) -> f32 {
+    let n8 = x.len() / 8 * 8;
+    let (mut a, mut bb) = ([0f32; 4], [0f32; 4]);
+    for c in (0..n8).step_by(8) {
+        for l in 0..4 {
+            a[l] = x[c + l].mul_add(w(c + l), a[l]);
+            bb[l] = x[c + 4 + l].mul_add(w(c + 4 + l), bb[l]);
+        }
+    }
+    let mut r = hsum4(std::array::from_fn(|l| a[l] + bb[l]));
+    for c in n8..x.len() {
+        r += x[c] * w(c);
+    }
+    r
+}
+
+/// Mirror of `gemv_neon` (4-row blocks; leftover rows use `dot`).
+pub(crate) fn gemv_portable(
+    x: &[f32],
+    in_f: usize,
+    w: &[f32],
+    b: Option<&[f32]>,
+    out_f: usize,
+    y: &mut [f32],
+) {
+    let o4 = out_f / 4 * 4;
+    for o in 0..out_f {
+        let wr = &w[o * in_f..(o + 1) * in_f];
+        let r = if o < o4 {
+            dot_lanes8(x, |c| wr[c])
+        } else {
+            dot(x, wr)
+        };
+        y[o] = r + b.map_or(0.0, |b| b[o]);
+    }
+}
+
+/// Mirror of `gemv_f16_neon` (`in_f % 8 == 0`; leftover rows are a plain in-order sum).
+pub(crate) fn gemv_f16_portable(
+    x: &[f32],
+    in_f: usize,
+    w: &[u16],
+    b: Option<&[f32]>,
+    out_f: usize,
+    y: &mut [f32],
+) {
+    let o4 = out_f / 4 * 4;
+    for o in 0..out_f {
+        let wr = &w[o * in_f..(o + 1) * in_f];
+        let r = if o < o4 {
+            dot_lanes8(x, |c| f16::from_bits(wr[c]).to_f32())
+        } else {
+            x.iter().zip(wr).fold(0f32, |acc, (xv, &wv)| {
+                acc + xv * f16::from_bits(wv).to_f32()
+            })
+        };
+        y[o] = r + b.map_or(0.0, |b| b[o]);
+    }
+}
+
+/// Mirror of `row_mean_var_neon`.
+pub(crate) fn row_mean_var_portable(xi: &[f32]) -> (f32, f32) {
+    let d = xi.len();
+    let n8 = d / 8 * 8;
+    let (mut s0, mut s1) = ([0f32; 4], [0f32; 4]);
+    for c in (0..n8).step_by(8) {
+        for l in 0..4 {
+            s0[l] += xi[c + l];
+            s1[l] += xi[c + 4 + l];
+        }
+    }
+    let mut sum = hsum4(std::array::from_fn(|l| s0[l] + s1[l]));
+    for v in &xi[n8..] {
+        sum += v;
+    }
+    let mean = sum / d as f32;
+    let (mut q0, mut q1) = ([0f32; 4], [0f32; 4]);
+    for c in (0..n8).step_by(8) {
+        for l in 0..4 {
+            let (a, e) = (xi[c + l] - mean, xi[c + 4 + l] - mean);
+            q0[l] = a.mul_add(a, q0[l]);
+            q1[l] = e.mul_add(e, q1[l]);
+        }
+    }
+    let mut sq = hsum4(std::array::from_fn(|l| q0[l] + q1[l]));
+    for v in &xi[n8..] {
+        let a = v - mean;
+        sq += a * a;
+    }
+    (mean, sq / d as f32)
 }
 
 /// Up to 4 token rows × all outputs, 4 outputs at a time: 16 float32x4 accumulators, loads shared across the tile.
@@ -183,9 +313,7 @@ pub fn gemv(x: &[f32], in_f: usize, w: &[f32], b: Option<&[f32]>, out_f: usize, 
         return;
     }
     #[allow(unreachable_code)]
-    for o in 0..out_f {
-        y[o] = dot(x, &w[o * in_f..(o + 1) * in_f]) + b.map_or(0.0, |b| b[o]);
-    }
+    gemv_portable(x, in_f, w, b, out_f, y)
 }
 
 #[cfg(target_arch = "aarch64")]
@@ -297,14 +425,7 @@ fn gemv_f16_part(
         return;
     }
     #[allow(unreachable_code)]
-    for o in 0..out_f {
-        let row = &w[o * in_f..(o + 1) * in_f];
-        let mut acc = 0f32;
-        for (xv, &wv) in x.iter().zip(row) {
-            acc += xv * f16::from_bits(wv).to_f32();
-        }
-        y[o] = acc + b.map_or(0.0, |b| b[o]);
-    }
+    gemv_f16_portable(x, in_f, w, b, out_f, y)
 }
 
 #[cfg(target_arch = "aarch64")]
@@ -438,9 +559,8 @@ pub fn row_mean_var(xi: &[f32]) -> (f32, f32) {
     }
     #[allow(unreachable_code)]
     {
-        let mean = xi.iter().sum::<f32>() / d as f32;
-        let var = xi.iter().map(|v| (v - mean) * (v - mean)).sum::<f32>() / d as f32;
-        (mean, var)
+        let _ = d;
+        row_mean_var_portable(xi)
     }
 }
 
@@ -487,12 +607,12 @@ pub fn silu_inplace(buf: &mut [f32], d: usize) {
 
 #[inline]
 pub fn silu(v: f32) -> f32 {
-    v / (1.0 + (-v).exp())
+    v / (1.0 + libm::expf(-v))
 }
 
 #[inline]
 pub fn sigmoid(v: f32) -> f32 {
-    1.0 / (1.0 + (-v).exp())
+    1.0 / (1.0 + libm::expf(-v))
 }
 
 /// In-place softmax over one row: `row[j] = exp(row[j]·scale − max) / Σ`.
@@ -502,7 +622,8 @@ pub fn softmax_row_scaled(row: &mut [f32], scale: f32) {
 }
 
 /// In-place `row[j] = exp(row[j]·scale − max)` (the maximum element becomes exactly 1); returns the row sum.
-/// NEON `exp` (range-reduced degree-6 polynomial, ~2 ulp) on aarch64, libm otherwise. Used by the int8 attention
+/// NEON `exp` (range-reduced degree-6 polynomial, ~2 ulp) on aarch64, its scalar mirror `exp_poly` elsewhere and
+/// in the tails, so every platform gets the same bits. Used by the int8 attention
 /// core (PLAN 3c.8); the f32 reference path keeps scalar libm `exp`.
 pub fn exp_row_scaled(row: &mut [f32], scale: f32) -> f32 {
     #[cfg(target_arch = "aarch64")]
@@ -511,15 +632,26 @@ pub fn exp_row_scaled(row: &mut [f32], scale: f32) -> f32 {
         return unsafe { exp_row_neon(row, scale) };
     }
     #[allow(unreachable_code)]
-    {
-        let max = row.iter().fold(f32::NEG_INFINITY, |m, v| m.max(v * scale));
-        let mut sum = 0f32;
-        for v in row.iter_mut() {
-            *v = (*v * scale - max).exp();
-            sum += *v;
+    exp_row_scaled_portable(row, scale)
+}
+
+/// Mirror of `exp_row_neon`: `exp_poly` per element, 4 lane sums, (l0 + l1) + (l2 + l3), then the tail in order.
+pub(crate) fn exp_row_scaled_portable(row: &mut [f32], scale: f32) -> f32 {
+    let max = row.iter().fold(f32::NEG_INFINITY, |m, v| m.max(v * scale));
+    let mut lanes = [0f32; 4];
+    let mut quads = row.chunks_exact_mut(4);
+    for q in &mut quads {
+        for (v, l) in q.iter_mut().zip(&mut lanes) {
+            *v = exp_poly(*v * scale - max);
+            *l += *v;
         }
-        sum
     }
+    let mut sum = hsum4(lanes);
+    for v in quads.into_remainder() {
+        *v = exp_poly(*v * scale - max);
+        sum += *v;
+    }
+    sum
 }
 
 const EXP_LN2_HI: f32 = 0.693_145_75;
@@ -686,7 +818,7 @@ unsafe fn exp_row_neon(row: &mut [f32], scale: f32) -> f32 {
     }
     let mut sum = vaddvq_f32(vsum);
     while i < n {
-        let e = (*p.add(i) - max).exp();
+        let e = exp_poly(*p.add(i) - max);
         *p.add(i) = e;
         sum += e;
         i += 1;
@@ -757,6 +889,85 @@ mod softmax_tests {
                     "n={n} j={j}: {got} vs {want}"
                 );
             }
+        }
+    }
+}
+
+/// aarch64: every NEON reduction equals its portable mirror bit for bit, so x86 (which runs the mirrors) matches.
+#[cfg(all(test, target_arch = "aarch64"))]
+mod portable_tests {
+    use super::*;
+
+    fn rnd(seed: &mut u64, n: usize) -> Vec<f32> {
+        (0..n)
+            .map(|_| {
+                *seed = seed
+                    .wrapping_mul(6364136223846793005)
+                    .wrapping_add(1442695040888963407);
+                ((*seed >> 40) as f32 / (1u64 << 24) as f32 - 0.5) * 8.0
+            })
+            .collect()
+    }
+
+    #[test]
+    fn neon_reductions_equal_portable_mirrors() {
+        let mut seed = 11u64;
+        for &(in_f, out_f) in &[
+            (640usize, 2560usize),
+            (1024, 13),
+            (4, 4),
+            (12, 7),
+            (1000, 9),
+        ] {
+            let x = rnd(&mut seed, 4 * in_f);
+            let w = rnd(&mut seed, out_f * in_f);
+            let bias = rnd(&mut seed, out_f);
+            for toks in 1..=4 {
+                let (mut a, mut p) = (vec![0f32; toks * out_f], vec![0f32; toks * out_f]);
+                unsafe { tile_rows_neon(&x, toks, in_f, &w, Some(&bias), out_f, &mut a) };
+                tile_rows_portable(&x, toks, in_f, &w, Some(&bias), out_f, &mut p);
+                assert!(
+                    a.iter().zip(&p).all(|(u, v)| u.to_bits() == v.to_bits()),
+                    "tile {in_f}x{out_f} t{toks}"
+                );
+            }
+            if in_f % 4 == 0 {
+                let (mut a, mut p) = (vec![0f32; out_f], vec![0f32; out_f]);
+                unsafe { gemv_neon(&x[..in_f], in_f, &w, Some(&bias), out_f, &mut a) };
+                gemv_portable(&x[..in_f], in_f, &w, Some(&bias), out_f, &mut p);
+                assert!(
+                    a.iter().zip(&p).all(|(u, v)| u.to_bits() == v.to_bits()),
+                    "gemv {in_f}x{out_f}"
+                );
+            }
+            if in_f % 8 == 0 {
+                let wh: Vec<u16> = w.iter().map(|v| f16::from_f32(*v).to_bits()).collect();
+                let (mut a, mut p) = (vec![0f32; out_f], vec![0f32; out_f]);
+                unsafe { gemv_f16_neon(&x[..in_f], in_f, &wh, Some(&bias), out_f, &mut a) };
+                gemv_f16_portable(&x[..in_f], in_f, &wh, Some(&bias), out_f, &mut p);
+                assert!(
+                    a.iter().zip(&p).all(|(u, v)| u.to_bits() == v.to_bits()),
+                    "gemv_f16 {in_f}x{out_f}"
+                );
+            }
+        }
+        for n in [1usize, 3, 4, 7, 8, 13, 64, 1023, 1024] {
+            let x = rnd(&mut seed, n);
+            let (m1, v1) = unsafe { row_mean_var_neon(&x, n) };
+            let (m2, v2) = row_mean_var_portable(&x);
+            assert_eq!(
+                (m1.to_bits(), v1.to_bits()),
+                (m2.to_bits(), v2.to_bits()),
+                "mean_var {n}"
+            );
+            let (mut a, mut p) = (x.clone(), x.clone());
+            let s1 = unsafe { exp_row_neon(&mut a, 0.0884) };
+            let s2 = exp_row_scaled_portable(&mut p, 0.0884);
+            assert_eq!(s1.to_bits(), s2.to_bits(), "exp sum {n}");
+            assert!(
+                a.iter().zip(&p).all(|(u, v)| u.to_bits() == v.to_bits()),
+                "exp row {n}"
+            );
         }
     }
 }
