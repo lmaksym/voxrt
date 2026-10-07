@@ -376,7 +376,7 @@ unsafe fn gemm_i8mm_4x4(
     let ng = inp / g;
     let slabs = inp / 8;
     let gslabs = g / 8;
-    debug_assert!(r0 % 2 == 0 && r1 % 2 == 0);
+    debug_assert!(r0.is_multiple_of(2) && r1.is_multiple_of(2));
     let mut o = r0;
     while o < r1 {
         let rows = (r1 - o).min(4);
@@ -610,7 +610,7 @@ pub unsafe fn gemm_i8mm_range(
     let slabs = inp / 8;
     let gslabs = g / 8;
     // full 8-token tiles start at t0 (t0 must be even: token pairs); the remainder goes through the 4×4 tile
-    debug_assert!(t0 % 2 == 0);
+    debug_assert!(t0.is_multiple_of(2));
     let n8 = t0 + (t1 - t0) / 8 * 8;
     let r8 = r0 + (r1 - r0) / 8 * 8;
     const TCHUNK: usize = 32;
@@ -703,7 +703,7 @@ pub unsafe fn gemm_i8mm_2bit(
     let slabs = inp / 8;
     let nq = inp / 32;
     let gquads = g / 32;
-    debug_assert!(r0 % 8 == 0 && (r1 - r0) % 8 == 0 && g % 32 == 0);
+    debug_assert!(r0.is_multiple_of(8) && (r1 - r0).is_multiple_of(8) && g % 32 == 0);
     const TCHUNK: usize = 32;
     let mask3 = vdupq_n_u8(3);
     let one = vdupq_n_s8(1);

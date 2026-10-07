@@ -76,7 +76,8 @@ case "${1:-status}" in
       --exclude target/ --exclude data/ --exclude 'models/parakeet-redux-fp/' --exclude 'bench/' \
       --exclude 'results/*.jsonl' --exclude dist/ --exclude '.venv/' --exclude 'bindings/swift/.build/' \
       --exclude 'bindings/swift/CPrx.xcframework/' \
-      "$R/" "root@$IP:/root/prx/" ;;
+      "$R/" "root@$IP:/root/prx/"
+    rsync -az -e "ssh ${SSHO[*]}" "$R/data/manifests" "root@$IP:/root/prx/data/" ;;
   status) api GET "/servers?label_selector=$LABEL" | json "'\n'.join(f\"{s['id']} {s['name']} {s['server_type']['name']} {s['status']} {s['public_net']['ipv4']['ip']}\" for s in d['servers']) or 'no server'" ;;
   down) down ;;
   *) echo "usage: $0 up [type] [vnni] | ip | ssh [cmd] | sync | status | down" >&2; exit 2 ;;

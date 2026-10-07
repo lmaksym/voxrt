@@ -6,6 +6,8 @@ use crate::tensor::threads;
 
 #[cfg(target_arch = "aarch64")]
 pub mod neon;
+#[cfg(target_arch = "x86_64")]
+pub mod x86;
 
 /// What the kernel does at each output store. Applied identically by every kernel, so results stay bit-identical.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -51,6 +53,10 @@ pub enum Kernel {
     Scalar,
     NeonDotprod,
     NeonI8mm,
+    /// x86-64 AVX2 + FMA (`vpmaddubsw`) on `Quad16`.
+    Avx2,
+    /// x86-64 AVX-512 VNNI (`vpdpbusd`) on `Quad16`.
+    Avx512Vnni,
 }
 
 impl Kernel {
@@ -61,6 +67,7 @@ impl Kernel {
                 Ok("pairs") => Layout::Pairs,
                 _ => Layout::Packed2,
             },
+            Kernel::Avx2 | Kernel::Avx512Vnni => Layout::Quad16,
             _ => Layout::Rows,
         }
     }
@@ -69,6 +76,7 @@ impl Kernel {
     pub fn int8_layout(self) -> Layout {
         match self {
             Kernel::NeonI8mm => Layout::Pairs,
+            Kernel::Avx2 | Kernel::Avx512Vnni => Layout::Quad16,
             _ => Layout::Rows,
         }
     }
@@ -82,6 +90,19 @@ pub fn detect() -> Kernel {
         }
         if std::arch::is_aarch64_feature_detected!("dotprod") {
             return Kernel::NeonDotprod;
+        }
+    }
+    #[cfg(target_arch = "x86_64")]
+    {
+        if is_x86_feature_detected!("avx512f")
+            && is_x86_feature_detected!("avx512bw")
+            && is_x86_feature_detected!("avx512vnni")
+            && is_x86_feature_detected!("fma")
+        {
+            return Kernel::Avx512Vnni;
+        }
+        if is_x86_feature_detected!("avx2") && is_x86_feature_detected!("fma") {
+            return Kernel::Avx2;
         }
     }
     Kernel::Scalar
@@ -100,13 +121,30 @@ fn gemm_blocks_mult() -> usize {
     })
 }
 
-/// Selected kernel (`PRX_KERNEL=scalar|sdot|i8mm` overrides detection).
+/// Selected kernel (`PRX_KERNEL=scalar|sdot|i8mm|avx2|vnni` overrides detection; an override the CPU cannot run
+/// falls back to detection).
 pub fn kernel() -> Kernel {
-    *KERNEL.get_or_init(|| match std::env::var("PRX_KERNEL").as_deref() {
-        Ok("scalar") => Kernel::Scalar,
-        Ok("sdot") | Ok("dotprod") => Kernel::NeonDotprod,
-        Ok("i8mm") => Kernel::NeonI8mm,
-        _ => detect(),
+    *KERNEL.get_or_init(|| {
+        let want = match std::env::var("PRX_KERNEL").as_deref() {
+            Ok("scalar") => Kernel::Scalar,
+            Ok("sdot") | Ok("dotprod") => Kernel::NeonDotprod,
+            Ok("i8mm") => Kernel::NeonI8mm,
+            Ok("avx2") => Kernel::Avx2,
+            Ok("vnni") => Kernel::Avx512Vnni,
+            _ => return detect(),
+        };
+        let best = detect();
+        let ok = match want {
+            Kernel::Scalar => true,
+            Kernel::NeonDotprod => best == Kernel::NeonI8mm || best == Kernel::NeonDotprod,
+            Kernel::Avx2 => best == Kernel::Avx512Vnni || best == Kernel::Avx2,
+            other => other == best,
+        };
+        if ok {
+            want
+        } else {
+            best
+        }
     })
 }
 
@@ -192,8 +230,12 @@ fn gemm_rows(
                 neon::gemm_i8mm(w, x, y, r0, r1, ep)
             }
         },
-        #[cfg(not(target_arch = "aarch64"))]
-        Kernel::NeonDotprod | Kernel::NeonI8mm => gemm_scalar(w, x, y, r0, r1, ep),
+        #[cfg(target_arch = "x86_64")]
+        Kernel::Avx2 => unsafe { x86::gemm_avx2_range(w, x, y, r0, r1, 0, x.n, ep) },
+        #[cfg(target_arch = "x86_64")]
+        Kernel::Avx512Vnni => unsafe { x86::gemm_vnni_range(w, x, y, r0, r1, 0, x.n, ep) },
+        #[allow(unreachable_patterns)]
+        _ => gemm_scalar(w, x, y, r0, r1, ep),
     }
 }
 
@@ -203,6 +245,7 @@ fn select_kernel(w: &TernaryMatrix, x: &QuantAct) -> Kernel {
         (Kernel::NeonI8mm, Layout::Pairs | Layout::Packed2, Layout::Pairs) => Kernel::NeonI8mm,
         (Kernel::NeonI8mm, Layout::Rows, Layout::Rows)
         | (Kernel::NeonDotprod, Layout::Rows, Layout::Rows) => Kernel::NeonDotprod,
+        (k @ (Kernel::Avx2 | Kernel::Avx512Vnni), Layout::Quad16, Layout::Quad16) => k,
         _ => Kernel::Scalar,
     }
 }
@@ -230,6 +273,10 @@ pub fn gemm_rows_range(
         Kernel::NeonI8mm if w.layout == Layout::Pairs => unsafe {
             neon::gemm_i8mm_range(w, x, y, r0, r1, t0, t1, ep)
         },
+        #[cfg(target_arch = "x86_64")]
+        Kernel::Avx2 => unsafe { x86::gemm_avx2_range(w, x, y, r0, r1, t0, t1, ep) },
+        #[cfg(target_arch = "x86_64")]
+        Kernel::Avx512Vnni => unsafe { x86::gemm_vnni_range(w, x, y, r0, r1, t0, t1, ep) },
         _ => gemm_scalar_range(w, x, y, r0, r1, t0, t1, ep),
     }
 }
@@ -240,7 +287,7 @@ pub fn gemm_single(w: &TernaryMatrix, x: &QuantAct, y: &mut [f32], bias: Option<
     if x.n == 1
         && matches!(w.layout, Layout::Rows | Layout::Rows8)
         && matches!(x.layout, Layout::Rows | Layout::Rows8) // activations in Rows8 are stored as Rows
-        && w.group % 16 == 0
+        && w.group.is_multiple_of(16)
         && matches!(kernel(), Kernel::NeonDotprod | Kernel::NeonI8mm)
     {
         // SAFETY: both kernels imply dotprod; layouts and shape checked above.
@@ -258,13 +305,7 @@ pub fn gemm_single(w: &TernaryMatrix, x: &QuantAct, y: &mut [f32], bias: Option<
         }
         return;
     }
-    let k = match (kernel(), w.layout, x.layout) {
-        (Kernel::NeonI8mm, Layout::Pairs | Layout::Packed2, Layout::Pairs) => Kernel::NeonI8mm,
-        (Kernel::NeonI8mm, Layout::Rows, Layout::Rows)
-        | (Kernel::NeonDotprod, Layout::Rows, Layout::Rows) => Kernel::NeonDotprod,
-        _ => Kernel::Scalar,
-    };
-    gemm_rows(k, w, x, y, 0, w.out, Epilogue::Store);
+    gemm_rows(select_kernel(w, x), w, x, y, 0, w.out, Epilogue::Store);
     if let Some(b) = bias {
         for t in 0..x.n {
             for (o, v) in y[t * w.out..(t + 1) * w.out].iter_mut().enumerate() {
@@ -286,12 +327,7 @@ pub fn gemm_ep(w: &TernaryMatrix, x: &QuantAct, y: &mut [f32], bias: Option<&[f3
     debug_assert_eq!(x.group, w.group);
     debug_assert_eq!(y.len(), x.n * w.out);
     // the kernel must match the weight layout; degrade gracefully otherwise
-    let k = match (kernel(), w.layout, x.layout) {
-        (Kernel::NeonI8mm, Layout::Pairs | Layout::Packed2, Layout::Pairs) => Kernel::NeonI8mm,
-        (Kernel::NeonI8mm, Layout::Rows, Layout::Rows) => Kernel::NeonDotprod,
-        (Kernel::NeonDotprod, Layout::Rows, Layout::Rows) => Kernel::NeonDotprod,
-        _ => Kernel::Scalar,
-    };
+    let k = select_kernel(w, x);
     // block count adapts to the work: enough small blocks for work-stealing to balance P- and E-cores on big GEMMs,
     // fewer on small ones so dispatch and tail effects stay low (≈ 4 MMAC per block, within [threads, 8·threads])
     let work = x.n * w.out * w.inp;
@@ -303,7 +339,9 @@ pub fn gemm_ep(w: &TernaryMatrix, x: &QuantAct, y: &mut [f32], bias: Option<&[f3
     }
     .min(w.out / 8)
     .max(1);
-    let chunk = w.out.div_ceil(blocks).div_ceil(8) * 8;
+    // blocks are whole row tiles of the layout (16 rows on Quad16, else 8)
+    let align = if w.layout == Layout::Quad16 { 16 } else { 8 };
+    let chunk = w.out.div_ceil(blocks).div_ceil(align) * align;
     let yp = y.as_mut_ptr() as usize;
     let len = y.len();
     let n_blocks = w.out.div_ceil(chunk);

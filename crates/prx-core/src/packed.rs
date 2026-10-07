@@ -19,6 +19,17 @@ pub enum Layout {
     /// `[w[8rb][16c..16c+16], …, w[8rb+7][16c..16c+16]]`. One sequential stream for the single-token GEMV
     /// (decoder weights, 3c.17); rows padded to a multiple of 8.
     Rows8,
+    /// Blocks of 16 rows × 4 columns (x86 AVX2 / AVX-512 VNNI): for row block `rb`, column quad `q`: 64 bytes
+    /// `[w[16rb][4q..4q+4], …, w[16rb+15][4q..4q+4]]`, so one load feeds a 4-byte dot product per row lane and a
+    /// lane accumulates its row's group sum without horizontal adds. Rows padded to a multiple of 16 (zeros);
+    /// activations in this layout are plain rows.
+    Quad16,
+}
+
+/// Byte offset of `w[r][k]` in the `Quad16` plane of a matrix with `inp` columns.
+#[inline]
+pub fn quad16_offset(r: usize, k: usize, inp: usize) -> usize {
+    ((r / 16) * (inp / 4) + k / 4) * 64 + (r % 16) * 4 + k % 4
 }
 
 impl Layout {
@@ -27,6 +38,7 @@ impl Layout {
         match self {
             Layout::Packed2 => out * inp / 4,
             Layout::Rows8 => out.div_ceil(8) * 8 * inp,
+            Layout::Quad16 => out.div_ceil(16) * 16 * inp,
             _ => out * inp,
         }
     }
@@ -40,6 +52,11 @@ pub struct TernaryMatrix {
     pub layout: Layout,
     pub w: Vec<i8>,       // `layout`-ordered, out*inp bytes
     pub scales: Vec<f32>, // row-major [out, inp/group]
+    /// `Quad16` only: scales per row block and group, `[out/16][inp/group][16]` (padded rows 0), so a 16-row lane
+    /// vector of scales is one load.
+    pub scales_q: Vec<f32>,
+    /// Weights are in {-1, 0, +1} (from the packed ternary format); arbitrary int8 otherwise.
+    pub ternary: bool,
 }
 
 impl TernaryMatrix {
@@ -66,24 +83,22 @@ impl TernaryMatrix {
             layout != Layout::Rows8,
             "Rows8 is for int8 row matrices (from_i8_rows)"
         );
-        assert!(layout == Layout::Rows || (out % 2 == 0 && inp % 8 == 0));
-        assert!(layout != Layout::Packed2 || inp % 32 == 0);
+        assert!(
+            matches!(layout, Layout::Rows | Layout::Quad16)
+                || (out.is_multiple_of(2) && inp.is_multiple_of(8))
+        );
+        assert!(layout != Layout::Packed2 || inp.is_multiple_of(32));
+        assert!(layout != Layout::Quad16 || inp.is_multiple_of(4));
         let rb = inp.div_ceil(5);
         let ng = inp / group;
-        let mut w = vec![
-            0i8;
-            if layout == Layout::Packed2 {
-                out * inp / 4
-            } else {
-                out * inp
-            }
-        ];
+        let mut w = vec![0i8; layout.plane_bytes(out, inp)];
         let mut row = vec![0i8; inp];
         for r in 0..out {
             unpack_row(&qweight[r * rb..(r + 1) * rb], inp, &mut row);
             match layout {
                 Layout::Rows8 => unreachable!("rejected above"),
                 Layout::Rows => w[r * inp..(r + 1) * inp].copy_from_slice(&row),
+                Layout::Quad16 => put_quad16(&mut w, r, &row),
                 Layout::Pairs => {
                     let (rp, half) = (r / 2, r % 2);
                     for (sl, chunk) in row.chunks_exact(8).enumerate() {
@@ -109,6 +124,28 @@ impl TernaryMatrix {
             .map(|c| f16::from_le_bytes([c[0], c[1]]).to_f32())
             .collect::<Vec<_>>();
         assert_eq!(scales.len(), out * ng);
+        Self::finish(out, inp, group, layout, w, scales, true)
+    }
+
+    fn finish(
+        out: usize,
+        inp: usize,
+        group: usize,
+        layout: Layout,
+        w: Vec<i8>,
+        scales: Vec<f32>,
+        ternary: bool,
+    ) -> Self {
+        let ng = inp / group;
+        let mut scales_q = Vec::new();
+        if layout == Layout::Quad16 {
+            scales_q = vec![0f32; out.div_ceil(16) * ng * 16];
+            for r in 0..out {
+                for g in 0..ng {
+                    scales_q[((r / 16) * ng + g) * 16 + r % 16] = scales[r * ng + g];
+                }
+            }
+        }
         Self {
             out,
             inp,
@@ -116,6 +153,8 @@ impl TernaryMatrix {
             layout,
             w,
             scales,
+            scales_q,
+            ternary,
         }
     }
 
@@ -131,12 +170,14 @@ impl TernaryMatrix {
         assert_eq!(rows.len(), out * inp);
         assert_eq!(scales.len(), out * (inp / group));
         assert!(layout != Layout::Packed2, "Packed2 is ternary-only");
-        assert!(layout != Layout::Rows8 || inp % 16 == 0);
+        assert!(layout != Layout::Rows8 || inp.is_multiple_of(16));
+        assert!(layout != Layout::Quad16 || inp.is_multiple_of(4));
         let mut w = vec![0i8; layout.plane_bytes(out, inp)];
         for r in 0..out {
             let row = &rows[r * inp..(r + 1) * inp];
             match layout {
                 Layout::Rows => w[r * inp..(r + 1) * inp].copy_from_slice(row),
+                Layout::Quad16 => put_quad16(&mut w, r, row),
                 Layout::Packed2 => unreachable!("Packed2 is ternary-only"),
                 Layout::Rows8 => {
                     let (rb, sub) = (r / 8, r % 8);
@@ -154,14 +195,7 @@ impl TernaryMatrix {
                 }
             }
         }
-        Self {
-            out,
-            inp,
-            group,
-            layout,
-            w,
-            scales: scales.to_vec(),
-        }
+        Self::finish(out, inp, group, layout, w, scales.to_vec(), false)
     }
 
     /// Quantise f32 rows produced by `fill(r, row)` into an int8 matrix (absmax/127 per (row, group), like
@@ -176,11 +210,15 @@ impl TernaryMatrix {
     ) -> Self {
         assert!(layout != Layout::Packed2, "Packed2 is ternary-only");
         assert!(layout != Layout::Rows8, "Rows8: use from_i8_rows");
-        assert!(layout == Layout::Rows || (out % 2 == 0 && inp % 8 == 0));
+        assert!(
+            matches!(layout, Layout::Rows | Layout::Quad16)
+                || (out.is_multiple_of(2) && inp.is_multiple_of(8))
+        );
+        assert!(layout != Layout::Quad16 || inp.is_multiple_of(4));
         assert_eq!(inp % group, 0);
         let ng = inp / group;
         let slabs = inp / 8;
-        let mut w = vec![0i8; out * inp];
+        let mut w = vec![0i8; layout.plane_bytes(out, inp)];
         let mut scales = vec![0f32; out * ng];
         let mut tmp = vec![0f32; inp];
         let mut qrow = vec![0i8; inp];
@@ -194,6 +232,7 @@ impl TernaryMatrix {
             }
             match layout {
                 Layout::Rows => w[r * inp..(r + 1) * inp].copy_from_slice(&qrow),
+                Layout::Quad16 => put_quad16(&mut w, r, &qrow),
                 Layout::Pairs => {
                     let (rp, half) = (r / 2, r % 2);
                     for sl in 0..slabs {
@@ -204,14 +243,7 @@ impl TernaryMatrix {
                 Layout::Packed2 | Layout::Rows8 => unreachable!(),
             }
         }
-        Self {
-            out,
-            inp,
-            group,
-            layout,
-            w,
-            scales,
-        }
+        Self::finish(out, inp, group, layout, w, scales, false)
     }
 
     /// Element access independent of layout (reference paths only).
@@ -229,11 +261,21 @@ impl TernaryMatrix {
                 let byte = self.w[((r / 2) * (self.inp / 32) + q) * 16 + (r % 2) * 8 + pos] as u8;
                 ((byte >> (2 * j)) & 3) as i8 - 1
             }
+            Layout::Quad16 => self.w[quad16_offset(r, k, self.inp)],
         }
     }
 
     pub fn groups(&self) -> usize {
         self.inp / self.group
+    }
+}
+
+/// Write row `r` (`inp` columns) into a `Quad16` plane.
+fn put_quad16(w: &mut [i8], r: usize, row: &[i8]) {
+    let inp = row.len();
+    for (q, quad) in row.chunks_exact(4).enumerate() {
+        let o = ((r / 16) * (inp / 4) + q) * 64 + (r % 16) * 4;
+        w[o..o + 4].copy_from_slice(quad);
     }
 }
 
@@ -248,6 +290,9 @@ pub struct QuantAct {
     pub x: Vec<i8>,         // `layout`-ordered, n_pad*inp bytes
     pub scales: Vec<f32>,   // [n, inp/group]
     pub scales_t: Vec<f32>, // transposed [inp/group, n_pad] — contiguous per group for the SIMD tiles
+    /// `Quad16` (x86 kernels) only: Σ of the int8 codes per (token, group), `[n, inp/group]`, for the unsigned-operand
+    /// offset correction (`Σ (w + c)·x = Σ w·x + c·Σ x`).
+    pub gsum: Vec<i32>,
 }
 
 impl QuantAct {
@@ -286,7 +331,7 @@ impl QuantAct {
             // SAFETY: token t owns its scale slots and its bytes in `q` (row t, or its half of pair t/2); tasks are disjoint.
             let ds = unsafe { std::slice::from_raw_parts_mut((sp as *mut f32).add(t * ng), ng) };
             match layout {
-                Layout::Rows | Layout::Rows8 => {
+                Layout::Rows | Layout::Rows8 | Layout::Quad16 => {
                     let dq = unsafe {
                         std::slice::from_raw_parts_mut((qp as *mut i8).add(t * inp), inp)
                     };
@@ -360,6 +405,14 @@ impl QuantAct {
             }
         }
         scales.truncate(n * ng);
+        let gsum = if layout == Layout::Quad16 {
+            q[..n * inp]
+                .chunks_exact(group)
+                .map(|c| c.iter().map(|&v| v as i32).sum())
+                .collect()
+        } else {
+            Vec::new()
+        };
         Self {
             n,
             inp,
@@ -369,6 +422,7 @@ impl QuantAct {
             x: q,
             scales,
             scales_t,
+            gsum,
         }
     }
 
@@ -376,7 +430,7 @@ impl QuantAct {
     #[inline]
     pub fn get(&self, t: usize, k: usize) -> i8 {
         match self.layout {
-            Layout::Rows | Layout::Rows8 => self.x[t * self.inp + k],
+            Layout::Rows | Layout::Rows8 | Layout::Quad16 => self.x[t * self.inp + k],
             Layout::Pairs | Layout::Packed2 => {
                 self.x[((t / 2) * (self.inp / 8) + k / 8) * 16 + (t % 2) * 8 + k % 8]
             }
@@ -389,22 +443,31 @@ impl QuantAct {
 #[inline]
 pub fn quantize_group(src: &[f32], dst: &mut [i8]) -> f32 {
     #[cfg(target_arch = "aarch64")]
-    // SAFETY: NEON is baseline on aarch64; tails are handled by the scalar loops inside.
-    let amax = unsafe { absmax_neon(src) };
+    {
+        // SAFETY: NEON is baseline on aarch64; tails are handled by the scalar loops inside.
+        let amax = unsafe { absmax_neon(src) };
+        let s = if amax == 0.0 { 1.0 } else { amax / 127.0 };
+        // SAFETY: as above.
+        unsafe { quantize_neon(src, 1.0 / s, dst) };
+        s
+    }
     #[cfg(not(target_arch = "aarch64"))]
+    quantize_group_portable(src, dst)
+}
+
+crate::tensor::fma_dispatch! {
+/// Fallback of `quantize_group` (same scale and rounding as the NEON path; `roundps` instead of a libm `rintf` call
+/// on AVX2 machines).
+#[cfg_attr(target_arch = "aarch64", allow(dead_code))]
+pub(crate) fn quantize_group_portable(src: &[f32], dst: &mut [i8]) -> f32 {
     let amax = src.iter().fold(0f32, |m, v| m.max(v.abs()));
     let s = if amax == 0.0 { 1.0 } else { amax / 127.0 };
     let inv = 1.0 / s;
-    #[cfg(target_arch = "aarch64")]
-    // SAFETY: as above.
-    unsafe {
-        quantize_neon(src, inv, dst)
-    };
-    #[cfg(not(target_arch = "aarch64"))]
     for (d, v) in dst.iter_mut().zip(src) {
         *d = (v * inv).round_ties_even().clamp(-127.0, 127.0) as i8;
     }
     s
+}
 }
 
 #[cfg(target_arch = "aarch64")]
@@ -443,5 +506,32 @@ unsafe fn quantize_neon(src: &[f32], inv: f32, dst: &mut [i8]) {
     while i < src.len() {
         dst[i] = (src[i] * inv).round_ties_even().clamp(-127.0, 127.0) as i8;
         i += 1;
+    }
+}
+
+#[cfg(all(test, target_arch = "aarch64"))]
+mod portable_tests {
+    #[test]
+    fn neon_quantize_equals_portable() {
+        let mut seed = 3u64;
+        for n in [1usize, 7, 8, 128, 133, 384] {
+            let src: Vec<f32> = (0..n)
+                .map(|i| {
+                    seed = seed
+                        .wrapping_mul(6364136223846793005)
+                        .wrapping_add(1442695040888963407);
+                    // include exact .5 ties after scaling
+                    if i % 5 == 0 {
+                        (i as f32 + 0.5) * 0.1
+                    } else {
+                        ((seed >> 40) as f32 / 1e6) - 8.0
+                    }
+                })
+                .collect();
+            let (mut a, mut b) = (vec![0i8; n], vec![0i8; n]);
+            let sa = super::quantize_group(&src, &mut a);
+            let sb = super::quantize_group_portable(&src, &mut b);
+            assert_eq!((sa.to_bits(), &a), (sb.to_bits(), &b), "n={n}");
+        }
     }
 }

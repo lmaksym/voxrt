@@ -32,13 +32,46 @@ pub fn load_f32_shaped(m: &ModelFile, name: &str, shape: &[usize]) -> Result<Vec
     Ok(v)
 }
 
+/// `true` when the CPU has AVX2 and FMA (x86-64); cached by std after the first query.
+#[cfg(target_arch = "x86_64")]
+#[inline]
+pub fn x86_fma() -> bool {
+    std::is_x86_feature_detected!("avx2") && std::is_x86_feature_detected!("fma")
+}
+
+/// Define a function whose body is compiled twice on x86-64: as is, and with AVX2 + FMA enabled, picked at run time.
+/// Without the FMA feature every `mul_add` is a libm call and the 4-lane mirrors stay SSE2; with it they become
+/// `vfmadd` and AVX. The operations are the same, so the results are the same bits.
+macro_rules! fma_dispatch {
+    ($(#[$m:meta])* $vis:vis fn $name:ident($($a:ident: $t:ty),* $(,)?) $(-> $r:ty)? $body:block) => {
+        $(#[$m])*
+        $vis fn $name($($a: $t),*) $(-> $r)? {
+            #[inline(always)]
+            fn body($($a: $t),*) $(-> $r)? $body
+            #[cfg(target_arch = "x86_64")]
+            {
+                #[target_feature(enable = "avx2,fma")]
+                unsafe fn fast($($a: $t),*) $(-> $r)? {
+                    body($($a),*)
+                }
+                if $crate::tensor::x86_fma() {
+                    // SAFETY: AVX2 and FMA were detected at run time.
+                    return unsafe { fast($($a),*) };
+                }
+            }
+            body($($a),*)
+        }
+    };
+}
+pub(crate) use fma_dispatch;
+
 pub fn threads() -> usize {
     std::thread::available_parallelism()
         .map(|n| n.get())
         .unwrap_or(1)
 }
 
-#[inline]
+#[inline(always)]
 pub fn dot(a: &[f32], b: &[f32]) -> f32 {
     debug_assert_eq!(a.len(), b.len());
     let mut acc = [0f32; 8];
@@ -114,11 +147,12 @@ pub fn tile_f32(
 // Portable mirrors of the NEON reductions below: same lane split, fused multiply-adds, `vaddvq_f32` order
 // ((l0 + l1) + (l2 + l3)) and tails, so x86 and aarch64 give the same bits (checked by `portable_tests`).
 
-#[inline]
+#[inline(always)]
 fn hsum4(a: [f32; 4]) -> f32 {
     (a[0] + a[1]) + (a[2] + a[3])
 }
 
+fma_dispatch! {
 /// Mirror of `tile_rows_neon`: per (row, token) four fused lanes over 4-column steps, a separate scalar tail.
 pub(crate) fn tile_rows_portable(
     x: &[f32],
@@ -148,6 +182,7 @@ pub(crate) fn tile_rows_portable(
         }
     }
 }
+}
 
 /// Mirror of the 2 × 4-lane dot in `gemv_neon` / `gemv_f16_neon`: fused lanes over 8-column steps, lane-wise
 /// `a + b`, horizontal add, then the tail added in order.
@@ -169,6 +204,7 @@ fn dot_lanes8(x: &[f32], w: impl Fn(usize) -> f32) -> f32 {
     r
 }
 
+fma_dispatch! {
 /// Mirror of `gemv_neon` (4-row blocks; leftover rows use `dot`).
 pub(crate) fn gemv_portable(
     x: &[f32],
@@ -189,7 +225,9 @@ pub(crate) fn gemv_portable(
         y[o] = r + b.map_or(0.0, |b| b[o]);
     }
 }
+}
 
+fma_dispatch! {
 /// Mirror of `gemv_f16_neon` (`in_f % 8 == 0`; leftover rows are a plain in-order sum).
 pub(crate) fn gemv_f16_portable(
     x: &[f32],
@@ -212,7 +250,9 @@ pub(crate) fn gemv_f16_portable(
         y[o] = r + b.map_or(0.0, |b| b[o]);
     }
 }
+}
 
+fma_dispatch! {
 /// Mirror of `row_mean_var_neon`.
 pub(crate) fn row_mean_var_portable(xi: &[f32]) -> (f32, f32) {
     let d = xi.len();
@@ -243,6 +283,7 @@ pub(crate) fn row_mean_var_portable(xi: &[f32]) -> (f32, f32) {
         sq += a * a;
     }
     (mean, sq / d as f32)
+}
 }
 
 /// Up to 4 token rows × all outputs, 4 outputs at a time: 16 float32x4 accumulators, loads shared across the tile.
@@ -635,6 +676,7 @@ pub fn exp_row_scaled(row: &mut [f32], scale: f32) -> f32 {
     exp_row_scaled_portable(row, scale)
 }
 
+fma_dispatch! {
 /// Mirror of `exp_row_neon`: `exp_poly` per element, 4 lane sums, (l0 + l1) + (l2 + l3), then the tail in order.
 pub(crate) fn exp_row_scaled_portable(row: &mut [f32], scale: f32) -> f32 {
     let max = row.iter().fold(f32::NEG_INFINITY, |m, v| m.max(v * scale));
@@ -653,6 +695,7 @@ pub(crate) fn exp_row_scaled_portable(row: &mut [f32], scale: f32) -> f32 {
     }
     sum
 }
+}
 
 const EXP_LN2_HI: f32 = 0.693_145_75;
 const EXP_LN2_LO: f32 = 1.428_606_8e-6;
@@ -662,7 +705,7 @@ const EXP_POLY: [f32; 6] = [1.0 / 120.0, 1.0 / 24.0, 1.0 / 6.0, 0.5, 1.0, 1.0];
 /// clamped to [−87, 88]. Scalar mirror of `exp_v`: the same operations (fused multiply-adds, round-to-even, exponent
 /// construction) in the same order, so both give bit-identical results — the kernels' scalar == SIMD contract
 /// extends to the SiLU epilogue.
-#[inline]
+#[inline(always)]
 pub fn exp_poly(x: f32) -> f32 {
     let x = x.clamp(-87.0, 88.0);
     let n = (x * std::f32::consts::LOG2_E).round_ties_even();
@@ -676,13 +719,13 @@ pub fn exp_poly(x: f32) -> f32 {
 }
 
 /// `x / (1 + exp(−x))` with `exp_poly`; the SiLU used by the GEMM epilogue (scalar and SIMD paths agree bit for bit).
-#[inline]
+#[inline(always)]
 pub fn silu_fast(x: f32) -> f32 {
     x / (1.0 + exp_poly(-x))
 }
 
 /// `1 / (1 + exp(−x))` with `exp_poly` (conv-module GLU).
-#[inline]
+#[inline(always)]
 pub fn sigmoid_fast(x: f32) -> f32 {
     1.0 / (1.0 + exp_poly(-x))
 }
@@ -756,9 +799,16 @@ pub fn glu_row(a: &[f32], b: &[f32], out: &mut [f32]) {
         return;
     }
     #[allow(unreachable_code)]
-    for c in 0..out.len() {
-        out[c] = a[c] * sigmoid_fast(b[c]);
+    glu_row_portable(a, b, out)
+}
+
+fma_dispatch! {
+/// Fallback of `glu_row` (`sigmoid_fast` per element, as the NEON tail).
+pub(crate) fn glu_row_portable(a: &[f32], b: &[f32], out: &mut [f32]) {
+    for ((o, a), b) in out.iter_mut().zip(a).zip(b) {
+        *o = a * sigmoid_fast(*b);
     }
+}
 }
 
 /// In-place SiLU over a row with `silu_fast` / `silu_v`.
@@ -782,9 +832,16 @@ pub fn silu_row(row: &mut [f32]) {
         return;
     }
     #[allow(unreachable_code)]
+    silu_row_portable(row)
+}
+
+fma_dispatch! {
+/// Fallback of `silu_row`.
+pub(crate) fn silu_row_portable(row: &mut [f32]) {
     for v in row.iter_mut() {
         *v = silu_fast(*v);
     }
+}
 }
 
 #[cfg(target_arch = "aarch64")]
