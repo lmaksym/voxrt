@@ -1,6 +1,6 @@
 """Same-machine, same-audio benchmark of Parakeet runtimes (PLAN 5.5, used early for Gate 3).
 One utterance at a time, model loaded once per runtime, 2 warm-up utterances, wall clock per utterance.
-usage: bench/.venv/bin/python bench/run_all.py [--set dev50] [--runtimes prx-int8,prx-f32,sherpa,onnx-asr,parakeet.cpp]"""
+usage: bench/.venv/bin/python bench/run_all.py [--set dev50] [--runtimes prx-int8,prx-f32,sherpa,onnx-asr,parakeet.cpp,parakeet-mlx,photon-cpu,photon-mps]"""
 import argparse, json, os, re, statistics, subprocess, sys, time
 from pathlib import Path
 
@@ -95,6 +95,12 @@ def run_photon(rows, device):
     m = re.search(r"processing only: ([0-9.]+)x", p.stdout or "")
     return out, float(m.group(1)) if m else float("nan"), "driver-reported processing time, model load excluded"
 
+def run_parakeet_mlx(rows):
+    """parakeet-mlx (Apple GPU via MLX), teacher parakeet-tdt-0.6b-v3 in bf16, greedy; model loaded once."""
+    from parakeet_mlx import from_pretrained
+    model = from_pretrained("mlx-community/parakeet-tdt-0.6b-v3")
+    return timed(rows, lambda r: model.transcribe(wav_of(r)).text, "parakeet-mlx-bf16")
+
 def timed(rows, fn, name, note=""):
     out = ROOT / f"results/bench_{name}.jsonl"
     for r in rows[:2]: fn(r)
@@ -123,6 +129,7 @@ def main():
             elif rt == "photon-cpu": out, wall, note = run_photon(rows, "cpu")
             elif rt == "photon-mps": out, wall, note = run_photon(rows, "mps")
             elif rt == "parakeet.cpp-cli": out, wall, note = run_parakeet_cpp(rows)
+            elif rt == "parakeet-mlx": out, wall, note = run_parakeet_mlx(rows)
             else: print("unknown", rt); continue
             w = score(out, ROOT / f"data/manifests/{a.set}.jsonl", quiet=True) if out else float("nan")
             print(f"{rt:20s} {wall:12.1f} {100*w:7.2f}  {note}")
