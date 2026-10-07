@@ -1,0 +1,15 @@
+[package]
+name = "prx-python"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "Python bindings for the Parakeet Redux runtime"
+
+[lib]
+name = "_prx"
+crate-type = ["cdylib"]
+
+[dependencies]
+prx-core = { version = "0.0.1", path = "../../crates/prx-core" }
+pyo3 = { version = "0.23", features = ["extension-module", "abi3-py39"] }

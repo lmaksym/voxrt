@@ -1,0 +1,18 @@
+[build-system]
+requires = ["maturin>=1.7,<2"]
+build-backend = "maturin"
+
+[project]
+name = "prx"
+description = "Open-source Rust runtime for moondream/parakeet-redux (ternary Parakeet-TDT): fast on-device speech-to-text"
+readme = "README.md"
+license = { text = "Apache-2.0" }
+requires-python = ">=3.9"
+classifiers = ["Programming Language :: Rust", "Programming Language :: Python :: 3", "License :: OSI Approved :: Apache Software License", "Topic :: Multimedia :: Sound/Audio :: Speech"]
+dynamic = ["version"]
+
+[tool.maturin]
+python-source = "python"
+module-name = "prx._prx"
+features = ["pyo3/extension-module"]
+manifest-path = "Cargo.toml"
