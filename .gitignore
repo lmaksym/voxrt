@@ -28,3 +28,8 @@ golden/vad/
 bench/.venv/
 bench/models/
 bench/parakeet.cpp/
+
+# built bindings
+bindings/swift/CPrx.xcframework/
+bindings/swift/.build/
+bindings/swift/Headers/prx.h
