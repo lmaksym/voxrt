@@ -325,7 +325,10 @@ impl QuantAct {
         let mut q = vec![0i8; n_pad * inp];
         let mut scales = vec![0f32; n_pad * ng];
         let slabs = inp / 8;
+        // Quad16 (x86): Σ of the codes per (token, group), filled per token inside the parallel pass
+        let mut gsum = vec![0i32; if layout == Layout::Quad16 { n * ng } else { 0 }];
         let (qp, sp) = (q.as_mut_ptr() as usize, scales.as_mut_ptr() as usize);
+        let gp = gsum.as_mut_ptr() as usize;
         let do_token = |t: usize, tmp: &mut [f32], qrow: &mut [i8]| {
             fill(t, tmp);
             // SAFETY: token t owns its scale slots and its bytes in `q` (row t, or its half of pair t/2); tasks are disjoint.
@@ -340,6 +343,18 @@ impl QuantAct {
                             &tmp[g * group..(g + 1) * group],
                             &mut dq[g * group..(g + 1) * group],
                         );
+                    }
+                    if layout == Layout::Quad16 {
+                        // SAFETY: token t owns gsum[t·ng .. (t+1)·ng].
+                        let gs = unsafe {
+                            std::slice::from_raw_parts_mut((gp as *mut i32).add(t * ng), ng)
+                        };
+                        for (g, slot) in gs.iter_mut().enumerate() {
+                            *slot = dq[g * group..(g + 1) * group]
+                                .iter()
+                                .map(|&v| v as i32)
+                                .sum();
+                        }
                     }
                 }
                 Layout::Pairs | Layout::Packed2 => {
@@ -405,14 +420,6 @@ impl QuantAct {
             }
         }
         scales.truncate(n * ng);
-        let gsum = if layout == Layout::Quad16 {
-            q[..n * inp]
-                .chunks_exact(group)
-                .map(|c| c.iter().map(|&v| v as i32).sum())
-                .collect()
-        } else {
-            Vec::new()
-        };
         Self {
             n,
             inp,
@@ -451,8 +458,64 @@ pub fn quantize_group(src: &[f32], dst: &mut [i8]) -> f32 {
         unsafe { quantize_neon(src, 1.0 / s, dst) };
         s
     }
+    #[cfg(target_arch = "x86_64")]
+    if crate::tensor::x86_fma() {
+        // SAFETY: AVX2 detected.
+        return unsafe { quantize_group_avx2(src, dst) };
+    }
     #[cfg(not(target_arch = "aarch64"))]
     quantize_group_portable(src, dst)
+}
+
+/// AVX2 `quantize_group`: the absmax is order-independent and `vroundps` rounds half to even, so the scale and codes
+/// equal the portable path's (|v·inv| ≤ 127 after rounding; the saturating packs never clamp).
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx2,fma")]
+unsafe fn quantize_group_avx2(src: &[f32], dst: &mut [i8]) -> f32 {
+    use std::arch::x86_64::*;
+    let n = src.len();
+    let p = src.as_ptr();
+    let abs_mask = _mm256_castsi256_ps(_mm256_set1_epi32(0x7fff_ffff));
+    let mut m = _mm256_setzero_ps();
+    let mut i = 0;
+    while i + 8 <= n {
+        m = _mm256_max_ps(m, _mm256_and_ps(_mm256_loadu_ps(p.add(i)), abs_mask));
+        i += 8;
+    }
+    let mut lanes = [0f32; 8];
+    _mm256_storeu_ps(lanes.as_mut_ptr(), m);
+    let mut amax = lanes.iter().fold(0f32, |a, &v| a.max(v));
+    while i < n {
+        amax = amax.max(src[i].abs());
+        i += 1;
+    }
+    let s = if amax == 0.0 { 1.0 } else { amax / 127.0 };
+    let inv = 1.0 / s;
+    let vinv = _mm256_set1_ps(inv);
+    let q = dst.as_mut_ptr();
+    i = 0;
+    while i + 16 <= n {
+        let rnd = |v: __m256| {
+            _mm256_cvtps_epi32(_mm256_round_ps::<
+                { _MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC },
+            >(_mm256_mul_ps(v, vinv)))
+        };
+        let a = rnd(_mm256_loadu_ps(p.add(i)));
+        let b = rnd(_mm256_loadu_ps(p.add(i + 8)));
+        // packs work per 128-bit lane: [a0..3 b0..3 | a4..7 b4..7] -> fix the order with a 64-bit permute
+        let w16 = _mm256_permute4x64_epi64::<0b11_01_10_00>(_mm256_packs_epi32(a, b));
+        let b8 = _mm_packs_epi16(
+            _mm256_castsi256_si128(w16),
+            _mm256_extracti128_si256::<1>(w16),
+        );
+        _mm_storeu_si128(q.add(i) as *mut __m128i, b8);
+        i += 16;
+    }
+    while i < n {
+        dst[i] = (src[i] * inv).round_ties_even().clamp(-127.0, 127.0) as i8;
+        i += 1;
+    }
+    s
 }
 
 crate::tensor::fma_dispatch! {
@@ -530,6 +593,36 @@ mod portable_tests {
                 .collect();
             let (mut a, mut b) = (vec![0i8; n], vec![0i8; n]);
             let sa = super::quantize_group(&src, &mut a);
+            let sb = super::quantize_group_portable(&src, &mut b);
+            assert_eq!((sa.to_bits(), &a), (sb.to_bits(), &b), "n={n}");
+        }
+    }
+}
+
+#[cfg(all(test, target_arch = "x86_64"))]
+mod x86_tests {
+    #[test]
+    fn avx2_quantize_equals_portable() {
+        if !crate::tensor::x86_fma() {
+            eprintln!("no AVX2/FMA; skipped");
+            return;
+        }
+        let mut seed = 3u64;
+        for n in [1usize, 7, 8, 15, 16, 17, 128, 133, 384, 4096] {
+            let src: Vec<f32> = (0..n)
+                .map(|i| {
+                    seed = seed
+                        .wrapping_mul(6364136223846793005)
+                        .wrapping_add(1442695040888963407);
+                    if i % 5 == 0 {
+                        (i as f32 + 0.5) * 0.1
+                    } else {
+                        ((seed >> 40) as f32 / 1e6) - 8.0
+                    }
+                })
+                .collect();
+            let (mut a, mut b) = (vec![0i8; n], vec![0i8; n]);
+            let sa = unsafe { super::quantize_group_avx2(&src, &mut a) };
             let sb = super::quantize_group_portable(&src, &mut b);
             assert_eq!((sa.to_bits(), &a), (sb.to_bits(), &b), "n={n}");
         }

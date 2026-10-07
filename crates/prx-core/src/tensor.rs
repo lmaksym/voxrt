@@ -140,8 +140,78 @@ pub fn tile_f32(
         unsafe { tile_rows_neon(x, toks, in_f, w, b, out_f, y) };
         return;
     }
+    #[cfg(target_arch = "x86_64")]
+    if x86_fma() {
+        // SAFETY: AVX2 + FMA detected; the tile reads whole 4-float groups then a scalar tail.
+        unsafe { tile_rows_avx2(x, toks, in_f, w, b, out_f, y) };
+        return;
+    }
     #[allow(unreachable_code)]
     tile_rows_portable(x, toks, in_f, w, b, out_f, y)
+}
+
+/// AVX2 mirror of `tile_rows_neon`: each (row, token) keeps its own 4-lane fused accumulator; a 256-bit register
+/// holds two of them (tokens 0|1 and 2|3, the weight's 4 columns broadcast to both halves), so every lane performs
+/// the same `fma` sequence as NEON and the horizontal add / tail / bias are identical.
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx2,fma")]
+#[allow(clippy::needless_range_loop)]
+unsafe fn tile_rows_avx2(
+    x: &[f32],
+    toks: usize,
+    in_f: usize,
+    w: &[f32],
+    b: Option<&[f32]>,
+    out_f: usize,
+    y: &mut [f32],
+) {
+    use std::arch::x86_64::*;
+    let xp: [*const f32; 4] = std::array::from_fn(|c| x.as_ptr().add(c.min(toks - 1) * in_f));
+    let c4 = in_f / 4 * 4;
+    let mut o = 0;
+    while o < out_f {
+        let rows = (out_f - o).min(4);
+        let wp: [*const f32; 4] =
+            std::array::from_fn(|r| w.as_ptr().add((o + r.min(rows - 1)) * in_f));
+        let mut acc = [[_mm256_setzero_ps(); 2]; 4]; // [row][token pair]
+        let mut c = 0;
+        while c < c4 {
+            let x01 = _mm256_set_m128(_mm_loadu_ps(xp[1].add(c)), _mm_loadu_ps(xp[0].add(c)));
+            let x23 = _mm256_set_m128(_mm_loadu_ps(xp[3].add(c)), _mm_loadu_ps(xp[2].add(c)));
+            for r in 0..4 {
+                let wv = _mm256_broadcast_ps(&*(wp[r].add(c) as *const __m128));
+                acc[r][0] = _mm256_fmadd_ps(wv, x01, acc[r][0]);
+                acc[r][1] = _mm256_fmadd_ps(wv, x23, acc[r][1]);
+            }
+            c += 4;
+        }
+        let mut tail = [[0f32; 4]; 4];
+        while c < in_f {
+            for r in 0..4 {
+                let wv = *wp[r].add(c);
+                for tk in 0..4 {
+                    tail[r][tk] += wv * *xp[tk].add(c);
+                }
+            }
+            c += 1;
+        }
+        let mut lanes = [0f32; 8];
+        for r in 0..rows {
+            let bias = b.map_or(0.0, |b| b[o + r]);
+            for pair in 0..2 {
+                _mm256_storeu_ps(lanes.as_mut_ptr(), acc[r][pair]);
+                for half in 0..2 {
+                    let tk = pair * 2 + half;
+                    if tk < toks {
+                        let l = &lanes[half * 4..half * 4 + 4];
+                        *y.get_unchecked_mut(tk * out_f + o + r) =
+                            hsum4([l[0], l[1], l[2], l[3]]) + tail[r][tk] + bias;
+                    }
+                }
+            }
+        }
+        o += rows;
+    }
 }
 
 // Portable mirrors of the NEON reductions below: same lane split, fused multiply-adds, `vaddvq_f32` order
@@ -186,7 +256,7 @@ pub(crate) fn tile_rows_portable(
 
 /// Mirror of the 2 × 4-lane dot in `gemv_neon` / `gemv_f16_neon`: fused lanes over 8-column steps, lane-wise
 /// `a + b`, horizontal add, then the tail added in order.
-#[inline]
+#[inline(always)]
 #[allow(clippy::needless_range_loop)]
 fn dot_lanes8(x: &[f32], w: impl Fn(usize) -> f32) -> f32 {
     let n8 = x.len() / 8 * 8;
@@ -465,8 +535,59 @@ fn gemv_f16_part(
         unsafe { gemv_f16_neon(x, in_f, w, b, out_f, y) };
         return;
     }
+    #[cfg(target_arch = "x86_64")]
+    if x86_fma() && std::is_x86_feature_detected!("f16c") && in_f.is_multiple_of(8) {
+        // SAFETY: AVX2, FMA and F16C detected; rows are whole 8-column steps.
+        unsafe { gemv_f16_avx2(x, in_f, w, b, out_f, y) };
+        return;
+    }
     #[allow(unreachable_code)]
     gemv_f16_portable(x, in_f, w, b, out_f, y)
+}
+
+/// AVX2 mirror of `gemv_f16_neon`: NEON keeps two 4-lane accumulators per row (columns c..c+4 and c+4..c+8); one
+/// 256-bit register holds both (lanes 0..4 | 4..8), fed by an 8-half `vcvtph2ps`. Same fused operations per lane,
+/// then (lo + hi) lane-wise and the `vaddvq` order. Leftover rows (out % 4) are a plain in-order sum, as on NEON.
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx2,fma,f16c")]
+unsafe fn gemv_f16_avx2(
+    x: &[f32],
+    in_f: usize,
+    w: &[u16],
+    b: Option<&[f32]>,
+    out_f: usize,
+    y: &mut [f32],
+) {
+    use std::arch::x86_64::*;
+    let o4 = out_f / 4 * 4;
+    let mut o = 0;
+    while o < o4 {
+        let mut acc = [_mm256_setzero_ps(); 4];
+        let mut c = 0;
+        while c < in_f {
+            let xv = _mm256_loadu_ps(x.as_ptr().add(c));
+            for (k, a) in acc.iter_mut().enumerate() {
+                let h = _mm_loadu_si128(w.as_ptr().add((o + k) * in_f + c) as *const __m128i);
+                *a = _mm256_fmadd_ps(xv, _mm256_cvtph_ps(h), *a);
+            }
+            c += 8;
+        }
+        for (k, a) in acc.iter().enumerate() {
+            let s = _mm_add_ps(_mm256_castps256_ps128(*a), _mm256_extractf128_ps::<1>(*a));
+            let mut l = [0f32; 4];
+            _mm_storeu_ps(l.as_mut_ptr(), s);
+            y[o + k] = hsum4(l) + b.map_or(0.0, |b| b[o + k]);
+        }
+        o += 4;
+    }
+    while o < out_f {
+        let row = &w[o * in_f..(o + 1) * in_f];
+        let acc = x.iter().zip(row).fold(0f32, |acc, (xv, &wv)| {
+            acc + xv * f16::from_bits(wv).to_f32()
+        });
+        y[o] = acc + b.map_or(0.0, |b| b[o]);
+        o += 1;
+    }
 }
 
 #[cfg(target_arch = "aarch64")]
@@ -1025,6 +1146,64 @@ mod portable_tests {
                 a.iter().zip(&p).all(|(u, v)| u.to_bits() == v.to_bits()),
                 "exp row {n}"
             );
+        }
+    }
+}
+
+/// x86-64: the AVX2 f32 tile equals its portable mirror bit for bit (and the mirror equals NEON, `portable_tests`).
+#[cfg(all(test, target_arch = "x86_64"))]
+mod x86_tests {
+    use super::*;
+
+    #[test]
+    fn avx2_tile_equals_portable() {
+        if !x86_fma() {
+            eprintln!("no AVX2/FMA; skipped");
+            return;
+        }
+        let mut seed = 17u64;
+        let mut rnd = |n: usize| -> Vec<f32> {
+            (0..n)
+                .map(|_| {
+                    seed = seed
+                        .wrapping_mul(6364136223846793005)
+                        .wrapping_add(1442695040888963407);
+                    ((seed >> 40) as f32 / (1u64 << 24) as f32 - 0.5) * 8.0
+                })
+                .collect()
+        };
+        for &(in_f, out_f) in &[
+            (640usize, 2560usize),
+            (1024, 13),
+            (4, 4),
+            (12, 7),
+            (1001, 9),
+            (3, 5),
+        ] {
+            let x = rnd(4 * in_f);
+            let w = rnd(out_f * in_f);
+            let bias = rnd(out_f);
+            for toks in 1..=4 {
+                for b in [None, Some(&bias[..])] {
+                    let (mut a, mut p) = (vec![0f32; toks * out_f], vec![0f32; toks * out_f]);
+                    unsafe { tile_rows_avx2(&x, toks, in_f, &w, b, out_f, &mut a) };
+                    tile_rows_portable(&x, toks, in_f, &w, b, out_f, &mut p);
+                    assert!(
+                        a.iter().zip(&p).all(|(u, v)| u.to_bits() == v.to_bits()),
+                        "tile {in_f}x{out_f} t{toks}"
+                    );
+                }
+            }
+            if in_f % 8 == 0 && std::is_x86_feature_detected!("f16c") {
+                let wh: Vec<u16> = w.iter().map(|v| f16::from_f32(*v).to_bits()).collect();
+                let (mut a, mut p) = (vec![0f32; out_f], vec![0f32; out_f]);
+                unsafe { gemv_f16_avx2(&x[..in_f], in_f, &wh, Some(&bias), out_f, &mut a) };
+                gemv_f16_portable(&x[..in_f], in_f, &wh, Some(&bias), out_f, &mut p);
+                assert!(
+                    a.iter().zip(&p).all(|(u, v)| u.to_bits() == v.to_bits()),
+                    "gemv_f16 {in_f}x{out_f}"
+                );
+            }
         }
     }
 }

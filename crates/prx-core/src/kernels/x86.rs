@@ -54,21 +54,32 @@ pub unsafe fn gemm_vnni_range(
     ep: Epilogue,
 ) {
     debug_assert!(w.layout == Layout::Quad16 && x.layout == Layout::Quad16);
+    // with few tokens a single `vpdpbusd` chain per token is latency-bound (decoder GEMVs): split the group's steps
+    // over K independent accumulators (integer sums, so the order does not matter)
+    let split = (w.group / 4).is_multiple_of(4);
     for rb in r0 / 16..r1.div_ceil(16) {
         let mut t = t0;
         while t < t1 {
             let left = t1 - t;
             if left >= 8 {
-                vnni_tile::<8>(w, x, y, rb, r0, r1, t, ep);
+                vnni_tile::<8, 1>(w, x, y, rb, r0, r1, t, ep);
                 t += 8;
             } else if left >= 4 {
-                vnni_tile::<4>(w, x, y, rb, r0, r1, t, ep);
+                vnni_tile::<4, 1>(w, x, y, rb, r0, r1, t, ep);
                 t += 4;
             } else if left >= 2 {
-                vnni_tile::<2>(w, x, y, rb, r0, r1, t, ep);
+                if split {
+                    vnni_tile::<2, 2>(w, x, y, rb, r0, r1, t, ep);
+                } else {
+                    vnni_tile::<2, 1>(w, x, y, rb, r0, r1, t, ep);
+                }
                 t += 2;
             } else {
-                vnni_tile::<1>(w, x, y, rb, r0, r1, t, ep);
+                if split {
+                    vnni_tile::<1, 4>(w, x, y, rb, r0, r1, t, ep);
+                } else {
+                    vnni_tile::<1, 1>(w, x, y, rb, r0, r1, t, ep);
+                }
                 t += 1;
             }
         }
@@ -77,7 +88,7 @@ pub unsafe fn gemm_vnni_range(
 
 #[target_feature(enable = "avx512f,avx512bw,avx512vnni,fma")]
 #[allow(clippy::too_many_arguments)]
-unsafe fn vnni_tile<const T: usize>(
+unsafe fn vnni_tile<const T: usize, const K: usize>(
     w: &TernaryMatrix,
     x: &QuantAct,
     y: &mut [f32],
@@ -95,30 +106,50 @@ unsafe fn vnni_tile<const T: usize>(
     let flip = _mm512_set1_epi8(0x80u8 as i8);
     let mut accf = [_mm512_setzero_ps(); T];
     for gi in 0..ng {
-        let mut acc = [_mm512_setzero_si512(); T];
-        for q in gi * qpg..(gi + 1) * qpg {
-            let wv = _mm512_xor_si512(
-                std::ptr::read_unaligned(wb.add(q * 64) as *const __m512i),
-                flip,
-            );
-            for (j, a) in acc.iter_mut().enumerate() {
-                let xb = std::ptr::read_unaligned(xp.add((t + j) * inp + q * 4) as *const i32);
-                *a = _mm512_dpbusd_epi32(*a, wv, _mm512_set1_epi32(xb));
+        let mut acc = [[_mm512_setzero_si512(); K]; T];
+        let mut q = gi * qpg;
+        while q < (gi + 1) * qpg {
+            for k in 0..K {
+                let wv = _mm512_xor_si512(
+                    std::ptr::read_unaligned(wb.add((q + k) * 64) as *const __m512i),
+                    flip,
+                );
+                for (j, a) in acc.iter_mut().enumerate() {
+                    let xb =
+                        std::ptr::read_unaligned(xp.add((t + j) * inp + (q + k) * 4) as *const i32);
+                    a[k] = _mm512_dpbusd_epi32(a[k], wv, _mm512_set1_epi32(xb));
+                }
             }
+            q += K;
         }
         let sw = _mm512_loadu_ps(sq.add(gi * 16));
         for (j, (a, f)) in acc.iter().zip(accf.iter_mut()).enumerate() {
             let tok = t + j;
+            let a = a
+                .iter()
+                .fold(_mm512_setzero_si512(), |s, v| _mm512_add_epi32(s, *v));
             let corr = _mm512_set1_epi32(128 * x.gsum[tok * ng + gi]);
-            let s = _mm512_cvtepi32_ps(_mm512_sub_epi32(*a, corr));
+            let s = _mm512_cvtepi32_ps(_mm512_sub_epi32(a, corr));
             let p = _mm512_mul_ps(_mm512_set1_ps(x.scales[tok * ng + gi]), sw);
             *f = _mm512_fmadd_ps(s, p, *f);
         }
     }
+    let full = rb * 16 >= r0 && rb * 16 + 16 <= r1;
     let mut vals = [0f32; 16];
     for (j, f) in accf.iter().enumerate() {
-        _mm512_storeu_ps(vals.as_mut_ptr(), *f);
-        store_block(&vals, y, w.out, rb * 16, r0, r1, t + j, ep);
+        let dst = y.as_mut_ptr().add((t + j) * w.out + rb * 16);
+        match ep {
+            // whole block inside the range: vector store; the residual add is the same per-lane fma(s, v, old)
+            Epilogue::Store if full => _mm512_storeu_ps(dst, *f),
+            Epilogue::AddScaled(sc) if full => _mm512_storeu_ps(
+                dst,
+                _mm512_fmadd_ps(_mm512_set1_ps(sc), *f, _mm512_loadu_ps(dst)),
+            ),
+            _ => {
+                _mm512_storeu_ps(vals.as_mut_ptr(), *f);
+                store_block(&vals, y, w.out, rb * 16, r0, r1, t + j, ep);
+            }
+        }
     }
 }
 
@@ -232,10 +263,28 @@ unsafe fn avx2_tile<const T: usize, const TERN: bool>(
             }
         }
     }
+    let full = rb * 16 >= r0 && rb * 16 + 16 <= r1;
     let mut vals = [0f32; 16];
     for (j, f) in accf.iter().enumerate() {
-        _mm256_storeu_ps(vals.as_mut_ptr(), f[0]);
-        _mm256_storeu_ps(vals.as_mut_ptr().add(8), f[1]);
-        store_block(&vals, y, w.out, rb * 16, r0, r1, t + j, ep);
+        let dst = y.as_mut_ptr().add((t + j) * w.out + rb * 16);
+        match ep {
+            Epilogue::Store if full => {
+                _mm256_storeu_ps(dst, f[0]);
+                _mm256_storeu_ps(dst.add(8), f[1]);
+            }
+            Epilogue::AddScaled(sc) if full => {
+                let s = _mm256_set1_ps(sc);
+                _mm256_storeu_ps(dst, _mm256_fmadd_ps(s, f[0], _mm256_loadu_ps(dst)));
+                _mm256_storeu_ps(
+                    dst.add(8),
+                    _mm256_fmadd_ps(s, f[1], _mm256_loadu_ps(dst.add(8))),
+                );
+            }
+            _ => {
+                _mm256_storeu_ps(vals.as_mut_ptr(), f[0]);
+                _mm256_storeu_ps(vals.as_mut_ptr().add(8), f[1]);
+                store_block(&vals, y, w.out, rb * 16, r0, r1, t + j, ep);
+            }
+        }
     }
 }
