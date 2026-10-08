@@ -1,4 +1,4 @@
-//! NeMo-exact log-mel frontend (PLAN 2.5). Specification and sources: `docs/frontend.md`.
+//! NeMo-exact log-mel frontend. Specification and sources: `docs/frontend.md`.
 //!
 //! Output: `[n_frames, n_mels]` row-major f32, per-feature normalised, with `n_frames = len / hop`.
 

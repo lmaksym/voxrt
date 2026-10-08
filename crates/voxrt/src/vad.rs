@@ -1,4 +1,4 @@
-//! VAD head on the subsampler output (PLAN 4.1): `sigmoid(out(relu(ctx(relu(proj(x))))))`, 80 ms frames.
+//! VAD head on the subsampler output: `sigmoid(out(relu(ctx(relu(proj(x))))))`, 80 ms frames.
 //! Activation choice and segmentation rule: `docs/vad.md` (D-1.7).
 #![allow(clippy::needless_range_loop)]
 use crate::format::ModelFile;

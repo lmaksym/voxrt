@@ -1,4 +1,4 @@
-"""WER exactly as the Open ASR Leaderboard scores English (PLAN 0.6): its EnglishTextNormalizer on both sides, then
+"""WER exactly as the Open ASR Leaderboard scores English: its EnglishTextNormalizer on both sides, then
 kaldialign.edit_distance(..., merge_compounds=True) (leaderboard `normalizer/eval_utils.py::_align_pair`).
 usage: score.py HYP.jsonl [REF.jsonl]   (rows: {id, text}; REF defaults to test-clean manifest)"""
 import json, sys

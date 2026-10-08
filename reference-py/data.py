@@ -1,4 +1,4 @@
-"""LibriSpeech manifests (PLAN 0.5): data/manifests/<set>.jsonl with {id, audio, text, seconds}; fixed dev50 slice."""
+"""LibriSpeech manifests: data/manifests/<set>.jsonl with {id, audio, text, seconds}; fixed dev50 slice."""
 import json, sys, random
 from pathlib import Path
 import soundfile as sf

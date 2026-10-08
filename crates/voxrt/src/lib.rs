@@ -1,6 +1,6 @@
 //! voxrt: inference engine for `moondream/parakeet-redux`.
 //!
-//! Phase 2 (scalar fp32, correctness first). See `PLAN.md` and `docs/` at the repo root.
+//! Design notes and specifications: `docs/` at the repo root.
 
 pub mod audio;
 pub mod decoder;

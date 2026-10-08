@@ -1,4 +1,4 @@
-//! PyO3 bindings (PLAN 5.2): `voxrt.Transcriber(model_dir).transcribe(path | samples)` and `voxrt.Stream`.
+//! PyO3 bindings: `voxrt.Transcriber(model_dir).transcribe(path | samples)` and `voxrt.Stream`.
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::PyDict;

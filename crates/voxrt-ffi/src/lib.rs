@@ -1,4 +1,4 @@
-//! C ABI over `voxrt` (PLAN 5.1). Plain C structs with borrowed, NUL-terminated UTF-8 strings that live as long
+//! C ABI over `voxrt`. Plain C structs with borrowed, NUL-terminated UTF-8 strings that live as long
 //! as the `VoxrtTranscript` that owns them. Every function is safe to call from any thread; a `VoxrtTranscriber` may be
 //! shared across threads for concurrent transcription (it is immutable after load). Errors: functions that return a
 //! pointer return NULL and set a thread-local message readable with `voxrt_last_error`.

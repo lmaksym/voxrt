@@ -1,4 +1,4 @@
-//! NEON SDOT kernel (ARMv8.2 dotprod), PLAN 3.4. Register tile: 4 output rows × 4 tokens, 16 int32x4 accumulators,
+//! NEON SDOT kernel (ARMv8.2 dotprod). Register tile: 4 output rows × 4 tokens, 16 int32x4 accumulators,
 //! one 128-wide group at a time (8 × 16-byte chunks), then a pairwise reduction and f32 FMA with the group scales.
 #![allow(clippy::needless_range_loop, clippy::too_many_arguments)]
 use std::arch::aarch64::*;
@@ -144,7 +144,7 @@ unsafe fn tile_edge(
     }
 }
 
-/// Single-token GEMV on `Layout::Rows` (decoder joint head and LSTM gates, PLAN 3c.16): 8 rows per pass, each
+/// Single-token GEMV on `Layout::Rows` (decoder joint head and LSTM gates): 8 rows per pass, each
 /// 16-byte chunk of `x` feeds eight independent `sdot` chains, so the loop is bound by loads and weight bandwidth
 /// rather than by a 4×4 tile three quarters empty. Same i32 group sums and the same `fma(sum, s_x·s_w, acc)` per
 /// group as every other kernel → bit-identical to `gemm_scalar`.
@@ -356,7 +356,7 @@ unsafe fn smmla(acc: int32x4_t, a: int8x16_t, b: int8x16_t) -> int32x4_t {
     r
 }
 
-/// I8MM kernel (PLAN 3.5): weights in `Layout::Pairs`, activations in `x_pairs`; 4 rows × 4 tokens per tile as
+/// I8MM kernel: weights in `Layout::Pairs`, activations in `x_pairs`; 4 rows × 4 tokens per tile as
 /// four 2×2 `smmla` accumulators; no horizontal reductions. Same float association as the other kernels.
 ///
 /// # Safety
@@ -684,7 +684,7 @@ pub unsafe fn gemm_i8mm_range(
     }
 }
 
-/// I8MM kernel on `Layout::Packed2` weights (PLAN 3c.10): one 16-byte load per row pair per quad (4 slabs = 32 columns)
+/// I8MM kernel on `Layout::Packed2` weights: one 16-byte load per row pair per quad (4 slabs = 32 columns)
 /// unpacked just in time into the four `smmla` operands. Fully unrolled; no edge tiles (tokens padded, rows multiples of 8).
 ///
 /// # Safety

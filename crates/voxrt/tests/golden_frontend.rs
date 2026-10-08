@@ -1,4 +1,4 @@
-//! PLAN 2.4 / 2.5: audio reader and frontend vs the golden set (skipped when golden/ is absent).
+//! Audio reader and frontend vs the golden set (skipped when golden/ is absent).
 mod common;
 use common::*;
 use voxrt::frontend::{slaney_mel_filterbank, Frontend, MelConfig};

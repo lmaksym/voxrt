@@ -1,5 +1,5 @@
 //! Detokenizer for the model's `tokenizer.json` (HF tokenizers, BPE vocab + Metaspace decoder, byte fallback).
-//! Mirrors `ParakeetTokenizer.decode(ids, skip_special_tokens=True)` (PLAN 2.11).
+//! Mirrors `ParakeetTokenizer.decode(ids, skip_special_tokens=True)`.
 use std::path::Path;
 
 use serde::Deserialize;

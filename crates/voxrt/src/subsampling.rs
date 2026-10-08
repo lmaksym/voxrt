@@ -1,4 +1,4 @@
-//! dw-striding Conv2d subsampling, 8× in time (PLAN 2.6, 3c.6). HF `ParakeetEncoderSubsamplingConv2D`.
+//! dw-striding Conv2d subsampling, 8× in time. HF `ParakeetEncoderSubsamplingConv2D`.
 //!
 //! Channels-last layout `[T, F, C]` throughout: the 3×3 stride-2 convs vectorise over the channel axis and the
 //! 1×1 pointwise convs become plain GEMMs on the f32 NEON tile. Input `[T, F]` (time × mel); output `[T/8, d_model]`.

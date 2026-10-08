@@ -1,4 +1,4 @@
-//! Kernel exactness: SIMD == scalar on random tiles; quantised path ≈ f32 path (PLAN 3.4 / 3.7).
+//! Kernel exactness: SIMD == scalar on random tiles; quantised path ≈ f32 path.
 use voxrt::kernels::{detect, gemm, gemm_ep, gemm_rows_range, gemm_scalar, Epilogue, Kernel};
 use voxrt::packed::{Layout, QuantAct, TernaryMatrix};
 use voxrt::tensor::linear;

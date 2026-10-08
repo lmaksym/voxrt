@@ -1,4 +1,4 @@
-"""Inventory of model.safetensors → docs/tensors.md, plus structural checks (PLAN 1.1)."""
+"""Inventory of model.safetensors → docs/tensors.md, plus structural checks."""
 import hashlib, json, math, struct, sys, collections
 from pathlib import Path
 import numpy as np

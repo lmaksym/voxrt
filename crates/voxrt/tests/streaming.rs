@@ -1,4 +1,4 @@
-//! PLAN 4.6: feeding audio in small chunks must give exactly the offline long-form result.
+//! Feeding audio in small chunks must give exactly the offline long-form result.
 mod common;
 use common::*;
 use voxrt::format::default_model_dir;

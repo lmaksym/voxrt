@@ -1,4 +1,4 @@
-//! x86-64 kernels on the `Quad16` layout (16 rows × 4 columns per 64-byte block, PLAN 3c.9).
+//! x86-64 kernels on the `Quad16` layout (16 rows × 4 columns per 64-byte block).
 //!
 //! A SIMD lane owns one output row: each step loads 4 columns of 16 rows and multiplies them with 4 activation bytes
 //! broadcast to every lane, so a lane accumulates its row's exact i32 group sum without horizontal adds. Both

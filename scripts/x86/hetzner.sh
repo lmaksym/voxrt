@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# x86 test box on Hetzner Cloud (dedicated vCPU CCX line), for the x86 kernel work (PLAN 3c.9).
+# x86 test box on Hetzner Cloud (dedicated vCPU CCX line), for the x86 kernel work.
 # Only ever touches servers carrying the label purpose=parakeet-bench.
 #
 #   HCLOUD_TOKEN_FILE=path/to/token scripts/x86/hetzner.sh up [ccx33] [vnni]

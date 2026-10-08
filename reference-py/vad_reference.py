@@ -1,4 +1,4 @@
-"""VAD head probe (PLAN 1.7): run vad_head.{proj,ctx,out} on the subsampler output of the golden utterances and the
+"""VAD head probe: run vad_head.{proj,ctx,out} on the subsampler output of the golden utterances and the
 longest dev-clean file; try candidate inter-layer activations and compare against a waveform-energy silence mask."""
 import json, sys
 from pathlib import Path

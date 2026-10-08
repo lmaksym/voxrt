@@ -1,4 +1,4 @@
-/* PLAN 5.1 smoke test: link against libvoxrt and transcribe a WAV file.
+/*.1 smoke test: link against libvoxrt and transcribe a WAV file.
    build: see scripts/c_smoke.sh */
 #include <stdio.h>
 #include <stdlib.h>

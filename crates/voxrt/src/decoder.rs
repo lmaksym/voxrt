@@ -1,4 +1,4 @@
-//! TDT prediction network, joint and greedy loop (PLAN 2.10). Semantics: `docs/tdt.md` (NeMo rule).
+//! TDT prediction network, joint and greedy loop. Semantics: `docs/tdt.md` (NeMo rule).
 use crate::format::ModelFile;
 use crate::packed::{quantize_group, QuantAct, TernaryMatrix};
 use crate::tensor::{gemv_f16, linear, load_f16_bits, load_f32_shaped, sigmoid};

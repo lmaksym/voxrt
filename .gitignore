@@ -20,8 +20,9 @@ __pycache__/
 runs/
 *.log
 
-# eval outputs: keep the .wer.txt summaries and small json, not the per-utterance dumps
-results/*.jsonl
+# eval / benchmark outputs (scripts write here; the published numbers are in bench/README.md)
+results/*
+!results/.gitkeep
 golden/*/
 golden/vad/
 *.egg-info/

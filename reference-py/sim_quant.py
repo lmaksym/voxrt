@@ -1,4 +1,4 @@
-"""PLAN 3.2: simulate int8 activation quantisation at every ternary-module input (weights stay exact) and measure
+"""simulate int8 activation quantisation at every ternary-module input (weights stay exact) and measure
 the effect on dev50: WER and token-level agreement with the fp32 run. Schemes: per-token absmax, per-group-G absmax."""
 import json, glob, sys, time
 from pathlib import Path

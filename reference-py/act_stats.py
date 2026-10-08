@@ -1,4 +1,4 @@
-"""Activation range survey at every ternary-module input over dev50 (PLAN 1.8) → results/act_stats.json + docs table."""
+"""Activation range survey at every ternary-module input over dev50 → results/act_stats.json + docs table."""
 import json, sys
 from pathlib import Path
 import numpy as np, torch

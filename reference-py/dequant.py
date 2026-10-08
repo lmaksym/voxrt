@@ -1,4 +1,4 @@
-"""Dequantize parakeet-redux into a standard HF checkpoint dir (PLAN 1.3): models/parakeet-redux-fp/ .
+"""Dequantize parakeet-redux into a standard HF checkpoint dir: models/parakeet-redux-fp/ .
 Ternary weights become F16 (exact), dense tensors keep their dtype, vad_head.* goes to a separate file."""
 import json, shutil, sys
 from pathlib import Path

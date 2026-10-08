@@ -1,5 +1,5 @@
 """Small fixtures for the Rust unit tests (crates/voxrt/tests/fixtures): first rows of three ternary modules,
-raw packed bytes + f16 scales + expected unpacked trits + expected dequantised f32 (PLAN 2.3)."""
+raw packed bytes + f16 scales + expected unpacked trits + expected dequantised f32."""
 import json, struct
 from pathlib import Path
 import numpy as np

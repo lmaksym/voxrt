@@ -1,4 +1,4 @@
-//! Long-form / streaming transcription (PLAN 4.2, 4.6): VAD on fixed absolute-time blocks, a segment automaton that
+//! Long-form / streaming transcription: VAD on fixed absolute-time blocks, a segment automaton that
 //! only closes segments whose extent cannot change with future audio, and per-segment transcription.
 //! `Transcriber::transcribe_long` feeds everything through the same state machine, so streaming == offline by construction.
 //! Audio up to `long_form_threshold_s` is transcribed offline as one piece (no VAD cut); a stream that ends within that

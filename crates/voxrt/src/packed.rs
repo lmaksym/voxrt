@@ -1,4 +1,4 @@
-//! Load-time repack of ternary weights (PLAN 3.3) and per-group int8 activation quantisation (D-3.2).
+//! Load-time repack of ternary weights and per-group int8 activation quantisation (D-3.2).
 use half::f16;
 
 use crate::trits::unpack_row;
@@ -200,7 +200,7 @@ impl TernaryMatrix {
 
     /// Quantise f32 rows produced by `fill(r, row)` into an int8 matrix (absmax/127 per (row, group), like
     /// `QuantAct`): activations used as the *weight* operand of a GEMM, e.g. keys and relative positions in the
-    /// attention core (PLAN 3c.8). Single-threaded; callers parallelise across heads.
+    /// attention core. Single-threaded; callers parallelise across heads.
     pub fn from_f32_rows<F: FnMut(usize, &mut [f32])>(
         out: usize,
         inp: usize,

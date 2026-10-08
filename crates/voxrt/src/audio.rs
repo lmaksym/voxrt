@@ -1,4 +1,4 @@
-//! WAV input (PLAN 2.4 / 4.5): PCM 8/16/24/32-bit and IEEE f32/f64, any channel count (averaged to mono),
+//! WAV input: PCM 8/16/24/32-bit and IEEE f32/f64, any channel count (averaged to mono),
 //! any sample rate (windowed-sinc resampling to 16 kHz).
 use std::path::Path;
 

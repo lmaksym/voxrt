@@ -1,4 +1,4 @@
-"""Ternary packing per ternary.json (thrush-ternary-v2): 5 base-3 digits per byte, LSD first (PLAN 1.2)."""
+"""Ternary packing per ternary.json (thrush-ternary-v2): 5 base-3 digits per byte, LSD first."""
 import numpy as np
 
 POW3 = np.array([1, 3, 9, 27, 81], dtype=np.uint8)

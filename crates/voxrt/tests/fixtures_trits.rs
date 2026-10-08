@@ -1,4 +1,4 @@
-//! Unit tests against fixtures produced by `reference-py/make_fixtures.py` (PLAN 2.3).
+//! Unit tests against fixtures produced by `reference-py/make_fixtures.py`.
 use std::path::PathBuf;
 
 fn fx(name: &str) -> Vec<u8> {

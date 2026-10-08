@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# PLAN 2.13: run the Rust CLI over a manifest and score it with the leaderboard-exact scorer.
+# Run the Rust CLI over a manifest and score it with the leaderboard-exact scorer.
 # usage: scripts/wer.sh <dev50|test-clean> [extra voxrt args]
 set -euo pipefail
 R="$(cd "$(dirname "$0")/.." && pwd)"

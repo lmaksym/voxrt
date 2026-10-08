@@ -1,4 +1,4 @@
-//! Ternary × int8 GEMM kernels (PLAN 3.4+). `y[t, o] = Σ_g s_w[o,g] · s_x[t,g] · Σ_{c∈g} w[o,c] · x[t,c]`.
+//! Ternary × int8 GEMM kernels. `y[t, o] = Σ_g s_w[o,g] · s_x[t,g] · Σ_{c∈g} w[o,c] · x[t,c]`.
 //! Scalar reference + runtime-dispatched SIMD. All variants produce identical i32 group sums and use the same
 //! float association `acc = fma(sum, s_x·s_w, acc)`, so results are bit-identical across kernels.
 use crate::packed::{Layout, QuantAct, TernaryMatrix};
@@ -251,7 +251,7 @@ fn select_kernel(w: &TernaryMatrix, x: &QuantAct) -> Kernel {
 }
 
 /// Single-threaded tile of the GEMM: rows `[r0, r1)` × tokens `[t0, t1)` of `y[n, out]` (row stride `w.out`).
-/// Used by the attention core (PLAN 3c.8), where each task owns a block of query rows; `r0` and `r1` must be even
+/// Used by the attention core, where each task owns a block of query rows; `r0` and `r1` must be even
 /// on the I8MM path (row pairs). Not for `Packed2` weights.
 #[allow(clippy::too_many_arguments)]
 pub fn gemm_rows_range(

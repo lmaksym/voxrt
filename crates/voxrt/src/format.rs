@@ -1,4 +1,4 @@
-//! Model format: `config.json`, `ternary.json` and the safetensors file (PLAN 2.2).
+//! Model format: `config.json`, `ternary.json` and the safetensors file.
 //! Spec: `docs/model-format.md`, inventory: `docs/tensors.md`.
 
 use std::collections::BTreeMap;

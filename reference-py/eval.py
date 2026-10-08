@@ -1,4 +1,4 @@
-"""Run the reference over a manifest and score it (PLAN 1.5).
+"""Run the reference over a manifest and score it.
 usage: eval.py --set dev50|test-clean|dev-clean [--device cpu|mps] [--tag NAME]"""
 import argparse, json, sys, time
 from pathlib import Path

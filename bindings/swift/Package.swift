@@ -1,5 +1,5 @@
 // swift-tools-version:5.9
-// Swift package over the C ABI (PLAN 5.3). The binary target is built by scripts/build_xcframework.sh
+// Swift package over the C ABI. The binary target is built by scripts/build_xcframework.sh
 // (macOS arm64 + iOS arm64 + iOS simulator arm64) from crates/voxrt-ffi.
 import PackageDescription
 

@@ -1,4 +1,4 @@
-"""Reference inference for the dequantized checkpoint (PLAN 1.4): HF encoder + explicit NeMo-semantics TDT greedy loop.
+"""Reference inference for the dequantized checkpoint: HF encoder + explicit NeMo-semantics TDT greedy loop.
 Everything is exposed step by step so dump_golden.py can hook any tensor."""
 import json
 from dataclasses import dataclass, field

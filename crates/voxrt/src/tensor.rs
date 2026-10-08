@@ -786,7 +786,7 @@ pub fn softmax_row_scaled(row: &mut [f32], scale: f32) {
 /// In-place `row[j] = exp(row[j]·scale − max)` (the maximum element becomes exactly 1); returns the row sum.
 /// NEON `exp` (range-reduced degree-6 polynomial, ~2 ulp) on aarch64, its scalar mirror `exp_poly` elsewhere and
 /// in the tails, so every platform gets the same bits. Used by the int8 attention
-/// core (PLAN 3c.8); the f32 reference path keeps scalar libm `exp`.
+/// core; the f32 reference path keeps scalar libm `exp`.
 pub fn exp_row_scaled(row: &mut [f32], scale: f32) -> f32 {
     #[cfg(target_arch = "aarch64")]
     {

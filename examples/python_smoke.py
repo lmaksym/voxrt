@@ -1,4 +1,4 @@
-"""PLAN 5.2 smoke: path input, array input at a foreign rate, streaming == offline. usage: python examples/python_smoke.py MODEL_DIR"""
+"""Python smoke test: path input, array input at a foreign rate, streaming == offline. usage: python examples/python_smoke.py MODEL_DIR"""
 import sys, time
 import numpy as np, soundfile as sf
 import voxrt

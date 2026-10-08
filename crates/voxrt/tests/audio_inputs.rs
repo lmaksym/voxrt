@@ -1,4 +1,4 @@
-//! PLAN 4.5: other sample rates, stereo, float and 24-bit WAVs transcribe to the same text as the 16 kHz golden file.
+//! Other sample rates, stereo, float and 24-bit WAVs transcribe to the same text as the 16 kHz golden file.
 mod common;
 use common::*;
 use voxrt::audio::{read_wav, resample};

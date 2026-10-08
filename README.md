@@ -1,7 +1,5 @@
 # voxrt — fast, open runtime for Parakeet Redux
 
-> Project brief and status history: [`docs/brief.md`](docs/brief.md).
-
 **voxrt** runs [moondream/parakeet-redux](https://huggingface.co/moondream/parakeet-redux), the 1.58-bit ternary
 distillation of NVIDIA's `parakeet-tdt-0.6b-v3` (25 languages, 178 MB), on the CPU with native ternary kernels.
 Pure Rust, six small dependencies, Apache-2.0. C ABI, Python and Swift bindings, CLI. Long audio is segmented by
@@ -102,8 +100,8 @@ bench/.venv/bin/python bench/run_all.py       # same-machine benchmark of all ru
 scripts/c_smoke.sh · examples/python_smoke.py · swift run VoxrtSmoke    # binding smoke tests
 ```
 
-Plan and progress: [`PLAN.md`](PLAN.md). Clean-room policy: [`PROVENANCE.md`](PROVENANCE.md) — built only from the
-CC-BY model repo, NeMo, HF transformers and public papers; Moondream's runtime is used only as a black-box benchmark.
+voxrt is an independent implementation, built only from the CC-BY model repo, NeMo, HF transformers and public
+papers; Moondream's Photon runtime is used only as a black-box benchmark. Design decisions: [`docs/decisions.md`](docs/decisions.md).
 
 ## Credits
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# PLAN 5.8: build the macOS release artefacts into dist/, all universal (arm64 + x86_64): CLI, C library + header,
+# Build the macOS release artefacts into dist/, all universal (arm64 + x86_64): CLI, C library + header,
 # Python wheel (universal2), Swift XCFramework zip. Linux x86-64 artefacts come from CI (.github/workflows/release.yml).
 set -euo pipefail
 R="$(cd "$(dirname "$0")/.." && pwd)"; cd "$R"

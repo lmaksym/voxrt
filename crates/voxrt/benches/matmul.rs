@@ -1,4 +1,4 @@
-//! PLAN 3.1: the four ternary shapes × token counts. Reports GMAC/s so kernels are comparable.
+//! The four ternary shapes × token counts. Reports GMAC/s so kernels are comparable.
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use voxrt::tensor::linear;
 

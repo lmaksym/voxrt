@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# PLAN 5.1: build libvoxrt (static) and the C smoke program, run it on a golden file.
+# Build libvoxrt (static) and the C smoke program, run it on a golden file.
 # usage: scripts/c_smoke.sh [MODEL_DIR] [FILE.wav]
 set -euo pipefail
 R="$(cd "$(dirname "$0")/.." && pwd)"

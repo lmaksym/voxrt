@@ -1,4 +1,4 @@
-//! x86 kernels (PLAN 3c.9): AVX2 and AVX-512 VNNI on `Quad16` equal the scalar reference bit for bit, for ternary
+//! x86 kernels: AVX2 and AVX-512 VNNI on `Quad16` equal the scalar reference bit for bit, for ternary
 //! and arbitrary int8 weights, partial row/token ranges, every epilogue, and saturation-prone extremes.
 #![cfg(target_arch = "x86_64")]
 

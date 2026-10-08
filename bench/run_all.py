@@ -1,4 +1,4 @@
-"""Same-machine, same-audio benchmark of Parakeet runtimes (PLAN 5.5, used early for Gate 3).
+"""Same-machine, same-audio benchmark of Parakeet runtimes.
 One utterance at a time, model loaded once per runtime, 2 warm-up utterances, wall clock per utterance.
 usage: bench/.venv/bin/python bench/run_all.py [--set dev50] [--runtimes voxrt-int8,voxrt-f32,sherpa,onnx-asr,parakeet.cpp,parakeet-mlx,photon-cpu,photon-mps]"""
 import argparse, json, os, re, statistics, subprocess, sys, time

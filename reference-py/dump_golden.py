@@ -1,4 +1,4 @@
-"""Dump golden tensors for 5 fixed dev-clean utterances (PLAN 1.6) → golden/<id>/*.npy + golden/manifest.json.
+"""Dump golden tensors for 5 fixed dev-clean utterances → golden/<id>/*.npy + golden/manifest.json.
 CPU, fp32, deterministic. Hook points are documented in docs/golden.md."""
 import hashlib, json, re, sys, platform
 from pathlib import Path

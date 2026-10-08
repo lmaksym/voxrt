@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# PLAN 5.3: static libvoxrt → bindings/swift/CVoxrt.xcframework with three slices: macOS (universal: arm64 + x86_64
+# Static libvoxrt → bindings/swift/CVoxrt.xcframework with three slices: macOS (universal: arm64 + x86_64
 # for Intel Macs), iOS device (arm64), iOS simulator (arm64 + x86_64). Missing Rust targets are skipped with a note.
 # usage: scripts/build_xcframework.sh
 set -euo pipefail

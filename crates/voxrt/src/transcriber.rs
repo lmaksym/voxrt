@@ -1,4 +1,4 @@
-//! End-to-end transcription: single utterance (PLAN 2.12) and VAD-segmented long-form with timestamps (PLAN 4.2–4.4).
+//! End-to-end transcription: single utterance and VAD-segmented long-form with timestamps.
 use std::path::Path;
 
 use crate::decoder::{Decoder, Emission};

@@ -1,4 +1,4 @@
-# Same-machine benchmark (PLAN 5.5)
+# Same-machine benchmark
 
 `bench/run_all.py` runs every runtime on the same audio, one utterance at a time, model loaded once per runtime,
 two warm-up utterances, **processing time only** (model load excluded), one number per runtime, and scores every
@@ -65,5 +65,5 @@ the FF shapes, AVX2 178–181, decoder head GEMV 54 µs.
   sherpa-onnx int8 model from the sherpa-onnx releases into `bench/models/`.
 - parakeet.cpp: clone into `bench/parakeet.cpp`, `cmake -B build && cmake --build build`, q8_0 GGUF into `bench/models/`.
 - Photon: separate venv `bench/.venv-photon` with `moondream`, driven only through the model card's usage
-  (`bench/photon_driver.py`); its source is never read (PROVENANCE.md, D-5.5b).
+  (`bench/photon_driver.py`); its source is never read (D-5.5b).
 - The dev50 / test-clean / TED-LIUM manifests: `reference-py/` scripts (`docs/eval-sets.md`).

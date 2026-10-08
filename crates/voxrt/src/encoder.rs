@@ -308,7 +308,7 @@ fn attn_int8() -> bool {
     *V.get_or_init(|| !matches!(std::env::var("VOXRT_ATTN").as_deref(), Ok("f32")))
 }
 
-/// Attention core on int8 scores (PLAN 3c.8). Per head, the query operands `q + bias_u` / `q + bias_v` are quantised
+/// Attention core on int8 scores. Per head, the query operands `q + bias_u` / `q + bias_v` are quantised
 /// per token (one group = the head dim) and the keys / relative positions per row as the *weight* operand, so the
 /// content scores and the banded position scores run on the int8 GEMM tiles (`gemm_rows_range`). Softmax and the
 /// context product stay f32. One task per (head, block of 8 query rows); the full-width score planes `s1`/`s2`
