@@ -1,6 +1,6 @@
 """Same-machine, same-audio benchmark of Parakeet runtimes (PLAN 5.5, used early for Gate 3).
 One utterance at a time, model loaded once per runtime, 2 warm-up utterances, wall clock per utterance.
-usage: bench/.venv/bin/python bench/run_all.py [--set dev50] [--runtimes prx-int8,prx-f32,sherpa,onnx-asr,parakeet.cpp,parakeet-mlx,photon-cpu,photon-mps]"""
+usage: bench/.venv/bin/python bench/run_all.py [--set dev50] [--runtimes voxrt-int8,voxrt-f32,sherpa,onnx-asr,parakeet.cpp,parakeet-mlx,photon-cpu,photon-mps]"""
 import argparse, json, os, re, statistics, subprocess, sys, time
 from pathlib import Path
 
@@ -13,13 +13,13 @@ def manifest(name):
 def wav_of(r):
     return str((ROOT / r["audio"]).with_suffix(".wav"))
 
-def run_prx(rows, precision):
-    exe = ROOT / "target/release/prx"
-    out = ROOT / f"results/bench_prx-{precision}.jsonl"
+def run_voxrt(rows, precision):
+    exe = ROOT / "target/release/voxrt"
+    out = ROOT / f"results/bench_voxrt-{precision}.jsonl"
     out.unlink(missing_ok=True)
-    tmp = ROOT / "data/manifests/_bench.jsonl"  # prx batch resolves audio relative to <root>/data/manifests
+    tmp = ROOT / "data/manifests/_bench.jsonl"  # voxrt batch resolves audio relative to <root>/data/manifests
     tmp.write_text("".join(json.dumps(r) + "\n" for r in rows))
-    env = dict(os.environ, PRX_PRECISION=precision)
+    env = dict(os.environ, VOXRT_PRECISION=precision)
     # warm-up
     subprocess.run([exe, "transcribe", wav_of(rows[0]), "--precision", precision], capture_output=True, env=env)
     t0 = time.time()
@@ -114,15 +114,15 @@ def timed(rows, fn, name, note=""):
     return out, audio / sum(1.0 / p for p in per) if per else float("nan"), note or "per-utterance processing time, model load excluded"
 
 def main():
-    ap = argparse.ArgumentParser(); ap.add_argument("--set", default="dev50"); ap.add_argument("--runtimes", default="prx-int8,prx-f32,sherpa,onnx-asr,parakeet.cpp")
+    ap = argparse.ArgumentParser(); ap.add_argument("--set", default="dev50"); ap.add_argument("--runtimes", default="voxrt-int8,voxrt-f32,sherpa,onnx-asr,parakeet.cpp")
     a = ap.parse_args(); rows = manifest(a.set); audio = sum(r["seconds"] for r in rows)
     from score import score
     print(f"set={a.set} utts={len(rows)} audio={audio:.0f}s  cpu={os.cpu_count()} threads\n")
     print(f"{'runtime':20s} {'× real time':>12s} {'WER %':>7s}  method (all: processing time only, same audio, one utterance at a time)")
     for rt in a.runtimes.split(","):
         try:
-            if rt == "prx-int8": out, wall, note = run_prx(rows, "int8")
-            elif rt == "prx-f32": out, wall, note = run_prx(rows, "f32")
+            if rt == "voxrt-int8": out, wall, note = run_voxrt(rows, "int8")
+            elif rt == "voxrt-f32": out, wall, note = run_voxrt(rows, "f32")
             elif rt == "sherpa": out, wall, note = run_sherpa(rows)
             elif rt == "onnx-asr": out, wall, note = run_onnx_asr(rows)
             elif rt == "parakeet.cpp": out, wall, note = run_parakeet_cpp_bench(rows)

@@ -3,7 +3,7 @@ the effect on dev50: WER and token-level agreement with the fp32 run. Schemes: p
 import json, glob, sys, time
 from pathlib import Path
 import torch
-from prx_ref import Reference, ROOT
+from voxrt_ref import Reference, ROOT
 from score import score
 
 def quant_fn(scheme, group):

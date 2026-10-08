@@ -1,5 +1,5 @@
 [package]
-name = "prx-python"
+name = "voxrt-python"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -7,9 +7,9 @@ rust-version.workspace = true
 description = "Python bindings for the Parakeet Redux runtime"
 
 [lib]
-name = "_prx"
+name = "_voxrt"
 crate-type = ["cdylib"]
 
 [dependencies]
-prx-core = { version = "0.1.0", path = "../../crates/prx-core" }
+voxrt = { version = "0.1.0", path = "../../crates/voxrt" }
 pyo3 = { version = "0.23", features = ["extension-module", "abi3-py39"] }

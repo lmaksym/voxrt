@@ -2,7 +2,7 @@
 usage: eval.py --set dev50|test-clean|dev-clean [--device cpu|mps] [--tag NAME]"""
 import argparse, json, sys, time
 from pathlib import Path
-from prx_ref import Reference, ROOT
+from voxrt_ref import Reference, ROOT
 from score import score
 
 def main():

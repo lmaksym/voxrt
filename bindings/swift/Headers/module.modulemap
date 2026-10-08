@@ -1,4 +1,4 @@
-module CPrx {
-    header "prx.h"
+module CVoxrt {
+    header "voxrt.h"
     export *
 }

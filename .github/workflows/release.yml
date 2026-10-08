@@ -14,11 +14,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - run: cargo build --release -p prx-cli -p prx-ffi
+      - run: cargo build --release -p voxrt-cli -p voxrt-ffi
       - run: |
           mkdir -p dist
-          tar -C target/release -czf dist/prx-${{ github.ref_name }}-${{ matrix.target }}.tar.gz prx
-          tar -czf dist/libprx-${{ github.ref_name }}-${{ matrix.target }}.tar.gz -C target/release $(ls target/release | grep -E '^libprx\.(a|so|dylib)$') -C "$PWD" include/prx.h
+          tar -C target/release -czf dist/voxrt-${{ github.ref_name }}-${{ matrix.target }}.tar.gz voxrt
+          tar -czf dist/libvoxrt-${{ github.ref_name }}-${{ matrix.target }}.tar.gz -C target/release $(ls target/release | grep -E '^libvoxrt\.(a|so|dylib)$') -C "$PWD" include/voxrt.h
       - uses: actions/upload-artifact@v4
         with: { name: cli-${{ matrix.target }}, path: dist/* }
   wheels:

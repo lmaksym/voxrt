@@ -1,0 +1,14 @@
+[package]
+name = "voxrt-ffi"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "C ABI for the Parakeet Redux runtime (voxrt)"
+
+[lib]
+name = "voxrt"
+crate-type = ["cdylib", "staticlib"]
+
+[dependencies]
+voxrt_core = { package = "voxrt", version = "0.1.0", path = "../voxrt" }  # the C library itself is named voxrt

@@ -2,7 +2,7 @@
 import json, sys
 from pathlib import Path
 import numpy as np, torch
-from prx_ref import Reference, ROOT
+from voxrt_ref import Reference, ROOT
 
 def main():
     device = sys.argv[1] if len(sys.argv) > 1 else "cpu"

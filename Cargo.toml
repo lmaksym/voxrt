@@ -1,8 +1,8 @@
 [workspace]
 resolver = "2"
-members = ["crates/prx-core", "crates/prx-cli", "crates/prx-ffi", "bindings/python"]
+members = ["crates/voxrt", "crates/voxrt-cli", "crates/voxrt-ffi", "bindings/python"]
 # the Python extension links only through maturin (bindings/python): keep it out of plain `cargo build/test`
-default-members = ["crates/prx-core", "crates/prx-cli", "crates/prx-ffi"]
+default-members = ["crates/voxrt", "crates/voxrt-cli", "crates/voxrt-ffi"]
 
 [workspace.package]
 version = "0.1.0"

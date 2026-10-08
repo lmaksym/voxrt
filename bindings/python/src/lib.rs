@@ -1,10 +1,10 @@
-//! PyO3 bindings (PLAN 5.2): `prx.Transcriber(model_dir).transcribe(path | samples)` and `prx.Stream`.
+//! PyO3 bindings (PLAN 5.2): `voxrt.Transcriber(model_dir).transcribe(path | samples)` and `voxrt.Stream`.
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
 
-use prx_core::longform::LongForm;
-use prx_core::transcriber::{Segment, Transcriber};
+use voxrt::longform::LongForm;
+use voxrt::transcriber::{Segment, Transcriber};
 
 fn err(e: impl std::fmt::Display) -> PyErr {
     PyRuntimeError::new_err(e.to_string())
@@ -67,11 +67,11 @@ impl PyTranscript {
 /// the extension on the stable ABI, where the buffer protocol is unavailable).
 fn samples_from(audio: &Bound<'_, PyAny>, sample_rate: u32) -> PyResult<Vec<f32>> {
     if let Ok(p) = audio.extract::<String>() {
-        let a = prx_core::audio::read_wav(&p).map_err(err)?;
+        let a = voxrt::audio::read_wav(&p).map_err(err)?;
         return Ok(a.samples);
     }
     let b: &[u8] = audio.extract().map_err(|_| {
-        PyValueError::new_err("audio must be a path or float32 sample bytes (use prx.Transcriber.transcribe with an array)")
+        PyValueError::new_err("audio must be a path or float32 sample bytes (use voxrt.Transcriber.transcribe with an array)")
     })?;
     if b.len() % 4 != 0 {
         return Err(PyValueError::new_err(
@@ -85,11 +85,11 @@ fn samples_from(audio: &Bound<'_, PyAny>, sample_rate: u32) -> PyResult<Vec<f32>
     Ok(if sample_rate == 16_000 {
         x
     } else {
-        prx_core::audio::resample(&x, sample_rate, 16_000)
+        voxrt::audio::resample(&x, sample_rate, 16_000)
     })
 }
 
-/// A loaded model. `Transcriber(model_dir=None)` uses `PRX_MODEL_DIR` or the repo default when `model_dir` is None.
+/// A loaded model. `Transcriber(model_dir=None)` uses `VOXRT_MODEL_DIR` or the repo default when `model_dir` is None.
 #[pyclass(name = "Transcriber", frozen)]
 pub struct PyTranscriber {
     inner: Transcriber,
@@ -102,7 +102,7 @@ impl PyTranscriber {
     fn new(py: Python<'_>, model_dir: Option<String>) -> PyResult<Self> {
         let dir = model_dir
             .map(std::path::PathBuf::from)
-            .unwrap_or_else(prx_core::format::default_model_dir);
+            .unwrap_or_else(voxrt::format::default_model_dir);
         let inner = py.allow_threads(|| Transcriber::load(&dir)).map_err(err)?;
         Ok(Self { inner })
     }
@@ -169,7 +169,7 @@ impl PyStream {
 }
 
 #[pymodule]
-fn _prx(m: &Bound<'_, PyModule>) -> PyResult<()> {
+fn _voxrt(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyTranscriber>()?;
     m.add_class::<PyTranscript>()?;
     m.add_class::<PyStream>()?;

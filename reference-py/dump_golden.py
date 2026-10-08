@@ -3,7 +3,7 @@ CPU, fp32, deterministic. Hook points are documented in docs/golden.md."""
 import hashlib, json, re, sys, platform
 from pathlib import Path
 import numpy as np, torch, transformers
-from prx_ref import Reference, ROOT
+from voxrt_ref import Reference, ROOT
 
 GOLDEN = ROOT / "golden"
 IDS_FILE = ROOT / "reference-py/golden_ids.txt"

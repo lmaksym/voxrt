@@ -3,7 +3,7 @@ requires = ["maturin>=1.7,<2"]
 build-backend = "maturin"
 
 [project]
-name = "prx"
+name = "voxrt"
 description = "Open-source Rust runtime for moondream/parakeet-redux (ternary Parakeet-TDT): fast on-device speech-to-text"
 readme = "README.md"
 license = { text = "Apache-2.0" }
@@ -13,6 +13,6 @@ dynamic = ["version"]
 
 [tool.maturin]
 python-source = "python"
-module-name = "prx._prx"
+module-name = "voxrt._voxrt"
 features = ["pyo3/extension-module"]
 manifest-path = "Cargo.toml"

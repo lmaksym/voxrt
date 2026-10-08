@@ -8,7 +8,7 @@
 # `up ... vnni` recreates the server until the CPU reports avx512_vnni (Genoa), max 6 tries.
 set -euo pipefail
 R="$(cd "$(dirname "$0")/../.." && pwd)"
-NAME=prx-x86
+NAME=voxrt-x86
 LABEL=purpose=parakeet-bench
 KEY="$HOME/.ssh/parakeet-bench"
 API=https://api.hetzner.cloud/v1
@@ -49,7 +49,7 @@ case "${1:-status}" in
     TYPE="${2:-ccx33}"; WANT="${3:-}"
     ensure_key
     [ -n "$(server_id)" ] && { echo "already up: $(server_ip)"; exit 0; }
-    read -r -a LOCS <<<"${PRX_LOCS:-fsn1 nbg1 hel1 fsn1 nbg1 hel1}"
+    read -r -a LOCS <<<"${VOXRT_LOCS:-fsn1 nbg1 hel1 fsn1 nbg1 hel1}"
     for i in "${!LOCS[@]}"; do
       create "$TYPE" "${LOCS[$i]}"
       CPU=$(rsh "lscpu | sed -n 's/^Model name: *//p'")
@@ -61,7 +61,7 @@ case "${1:-status}" in
     echo "no VNNI host after ${#LOCS[@]} tries" >&2; exit 1 ;;
   probe) # probe TYPE [LOC]: create a throwaway server, print its CPU, delete it (separate label, leaves the box alone)
     ensure_key
-    ID=$(api POST /servers "{\"name\":\"prx-probe-$2\",\"server_type\":\"$2\",\"location\":\"${3:-fsn1}\",
+    ID=$(api POST /servers "{\"name\":\"voxrt-probe-$2\",\"server_type\":\"$2\",\"location\":\"${3:-fsn1}\",
       \"image\":\"ubuntu-24.04\",\"ssh_keys\":[\"parakeet-bench\"],\"labels\":{\"purpose\":\"parakeet-probe\"}}" |
       json "d['server']['id']")
     trap 'api DELETE "/servers/$ID" >/dev/null' EXIT
@@ -75,9 +75,9 @@ case "${1:-status}" in
     rsync -az --delete -e "ssh ${SSHO[*]}" \
       --exclude target/ --exclude data/ --exclude 'models/parakeet-redux-fp/' --exclude 'bench/' \
       --exclude 'results/*.jsonl' --exclude dist/ --exclude '.venv/' --exclude 'bindings/swift/.build/' \
-      --exclude 'bindings/swift/CPrx.xcframework/' \
-      "$R/" "root@$IP:/root/prx/"
-    rsync -az -e "ssh ${SSHO[*]}" "$R/data/manifests" "root@$IP:/root/prx/data/" ;;
+      --exclude 'bindings/swift/CVoxrt.xcframework/' \
+      "$R/" "root@$IP:/root/voxrt/"
+    rsync -az -e "ssh ${SSHO[*]}" "$R/data/manifests" "root@$IP:/root/voxrt/data/" ;;
   status) api GET "/servers?label_selector=$LABEL" | json "'\n'.join(f\"{s['id']} {s['name']} {s['server_type']['name']} {s['status']} {s['public_net']['ipv4']['ip']}\" for s in d['servers']) or 'no server'" ;;
   down) down ;;
   *) echo "usage: $0 up [type] [vnni] | ip | ssh [cmd] | sync | status | down" >&2; exit 2 ;;

@@ -1,4 +1,4 @@
-"""Small fixtures for the Rust unit tests (crates/prx-core/tests/fixtures): first rows of three ternary modules,
+"""Small fixtures for the Rust unit tests (crates/voxrt/tests/fixtures): first rows of three ternary modules,
 raw packed bytes + f16 scales + expected unpacked trits + expected dequantised f32 (PLAN 2.3)."""
 import json, struct
 from pathlib import Path
@@ -6,7 +6,7 @@ import numpy as np
 from trits import unpack, dequant
 ROOT = Path(__file__).resolve().parents[1]
 MODEL = ROOT / "models/parakeet-redux"
-OUT = ROOT / "crates/prx-core/tests/fixtures"; OUT.mkdir(parents=True, exist_ok=True)
+OUT = ROOT / "crates/voxrt/tests/fixtures"; OUT.mkdir(parents=True, exist_ok=True)
 with open(MODEL / "model.safetensors", "rb") as f:
     hn = struct.unpack("<Q", f.read(8))[0]; hdr = json.loads(f.read(hn)); base = 8 + hn
     def load(name):

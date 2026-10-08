@@ -1,10 +1,10 @@
-# prx (Python)
+# voxrt (Python)
 
-Python bindings for the Parakeet Redux runtime: `pip install prx` (wheel) or `maturin develop` from this directory.
+Python bindings for the Parakeet Redux runtime: `pip install voxrt` (wheel) or `maturin develop` from this directory.
 
 ```python
-import prx
-t = prx.Transcriber("/path/to/parakeet-redux")      # or set PRX_MODEL_DIR
+import voxrt
+t = voxrt.Transcriber("/path/to/parakeet-redux")      # or set VOXRT_MODEL_DIR
 r = t.transcribe("talk.wav")                         # WAV, any rate; long audio is segmented automatically
 print(r.text)
 for s in r.segments:

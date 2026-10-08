@@ -5,7 +5,7 @@ from pathlib import Path
 import numpy as np, torch
 import torch.nn.functional as F
 from safetensors.torch import load_file
-from prx_ref import Reference, ROOT
+from voxrt_ref import Reference, ROOT
 
 def energy_mask(wav, n_frames, frame=1280, thresh_db=-40):
     e = np.array([np.mean(wav[i*frame:(i+1)*frame]**2) + 1e-12 for i in range(n_frames)])

@@ -2,18 +2,18 @@
 # x86 benchmark box on Google Cloud (C4D = AMD Turin / Zen 5, full-width AVX-512), same interface as hetzner.sh.
 # Only ever touches instances labelled purpose=parakeet-bench.
 #
-#   PRX_GCP_PROJECT=<project> scripts/x86/gcp.sh up [c4d-standard-16] [zone]
+#   VOXRT_GCP_PROJECT=<project> scripts/x86/gcp.sh up [c4d-standard-16] [zone]
 #   scripts/x86/gcp.sh ip | ssh [cmd...] | sync | status | down
 #
 # Root login: GCP images refuse it, so a startup script authorises the bench key (~/.ssh/parakeet-bench) for root,
-# which keeps setup.sh and the /root/prx paths identical to the Hetzner box.
+# which keeps setup.sh and the /root/voxrt paths identical to the Hetzner box.
 set -euo pipefail
 R="$(cd "$(dirname "$0")/../.." && pwd)"
-: "${PRX_GCP_PROJECT:?set PRX_GCP_PROJECT}"
-NAME=prx-x86
-ZONE_FILE="$HOME/.cache/prx-gcp-zone"
+: "${VOXRT_GCP_PROJECT:?set VOXRT_GCP_PROJECT}"
+NAME=voxrt-x86
+ZONE_FILE="$HOME/.cache/voxrt-gcp-zone"
 KEY="$HOME/.ssh/parakeet-bench"
-G=(gcloud --quiet --project "$PRX_GCP_PROJECT")
+G=(gcloud --quiet --project "$VOXRT_GCP_PROJECT")
 SSHO=(-i "$KEY" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR -o ConnectTimeout=5)
 
 zone() { cat "$ZONE_FILE" 2>/dev/null || echo europe-west4-a; }
@@ -51,9 +51,9 @@ $(rsh "grep -o -w 'avx2\|avx512f\|avx512_vnni\|avx_vnni\|avx512_bf16' /proc/cpui
     rsync -az --delete -e "ssh ${SSHO[*]}" \
       --exclude target/ --exclude 'target-*/' --exclude data/ --exclude 'models/parakeet-redux-fp/' --exclude 'bench/' \
       --exclude 'results/*.jsonl' --exclude dist/ --exclude '.venv/' --exclude 'bindings/swift/.build/' \
-      --exclude 'bindings/swift/CPrx.xcframework/' \
-      "$R/" "root@$IP:/root/prx/"
-    rsync -az -e "ssh ${SSHO[*]}" "$R/data/manifests" "root@$IP:/root/prx/data/" ;;
+      --exclude 'bindings/swift/CVoxrt.xcframework/' \
+      "$R/" "root@$IP:/root/voxrt/"
+    rsync -az -e "ssh ${SSHO[*]}" "$R/data/manifests" "root@$IP:/root/voxrt/data/" ;;
   status)
     "${G[@]}" compute instances list --filter="labels.purpose=parakeet-bench" \
       --format="table(name,zone.basename(),machineType.basename(),status,networkInterfaces[0].accessConfigs[0].natIP)" ;;

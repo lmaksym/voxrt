@@ -328,48 +328,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "prx-cli"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "prx-core",
- "rayon",
- "serde_json",
-]
-
-[[package]]
-name = "prx-core"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "criterion",
- "half",
- "libm",
- "memmap2",
- "rayon",
- "realfft",
- "safetensors",
- "serde",
- "serde_json",
- "thiserror",
-]
-
-[[package]]
-name = "prx-ffi"
-version = "0.1.0"
-dependencies = [
- "prx-core",
-]
-
-[[package]]
-name = "prx-python"
-version = "0.1.0"
-dependencies = [
- "prx-core",
- "pyo3",
-]
-
-[[package]]
 name = "pyo3"
 version = "0.23.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -666,6 +624,48 @@ name = "unindent"
 version = "0.2.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7264e107f553ccae879d21fbea1d6724ac785e8c3bfc762137959b5802826ef3"
+
+[[package]]
+name = "voxrt"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "criterion",
+ "half",
+ "libm",
+ "memmap2",
+ "rayon",
+ "realfft",
+ "safetensors",
+ "serde",
+ "serde_json",
+ "thiserror",
+]
+
+[[package]]
+name = "voxrt-cli"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "rayon",
+ "serde_json",
+ "voxrt",
+]
+
+[[package]]
+name = "voxrt-ffi"
+version = "0.1.0"
+dependencies = [
+ "voxrt",
+]
+
+[[package]]
+name = "voxrt-python"
+version = "0.1.0"
+dependencies = [
+ "pyo3",
+ "voxrt",
+]
 
 [[package]]
 name = "walkdir"

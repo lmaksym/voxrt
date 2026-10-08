@@ -1,11 +1,11 @@
 """PLAN 5.2 smoke: path input, array input at a foreign rate, streaming == offline. usage: python examples/python_smoke.py MODEL_DIR"""
 import sys, time
 import numpy as np, soundfile as sf
-import prx
+import voxrt
 
 model = sys.argv[1] if len(sys.argv) > 1 else None
-t = prx.Transcriber(model)
-print("prx", prx.__version__, t)
+t = voxrt.Transcriber(model)
+print("voxrt", voxrt.__version__, t)
 r = t.transcribe("golden/5694-64025-0000/audio.wav")
 print("path:", r)
 x, sr = sf.read("golden/1919-142785-0007/audio.wav", dtype="float32")

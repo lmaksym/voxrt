@@ -1,5 +1,5 @@
 [project]
-name = "prx-reference"
+name = "voxrt-reference"
 version = "0.0.1"
 description = "Dev-only Python reference for parakeet-redux-rs: dequantize, score, dump golden tensors"
 requires-python = ">=3.12"
