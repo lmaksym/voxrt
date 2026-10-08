@@ -1,4 +1,4 @@
-//! FastConformer encoder. Mirrors HF `ParakeetEncoder` (transformers 5.18); numerics in `docs/golden.md`.
+//! FastConformer encoder. Mirrors HF `ParakeetEncoder` (transformers 5.18).
 //! Ternary linears run in f32 (reference) or int8 (kernels), see `Precision`. Phase 3c: fused q/k/v GEMM,
 //! LayerNorm→quantise fusion, GEMM epilogues (SiLU, residual adds), one workspace per utterance.
 use crate::format::ModelFile;

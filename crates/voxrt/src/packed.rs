@@ -1,4 +1,4 @@
-//! Load-time repack of ternary weights and per-group int8 activation quantisation (D-3.2).
+//! Load-time repack of ternary weights and per-group int8 activation quantisation.
 use half::f16;
 
 use crate::trits::unpack_row;

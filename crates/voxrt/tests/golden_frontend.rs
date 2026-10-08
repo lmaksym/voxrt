@@ -55,7 +55,7 @@ fn log_mel_and_features_match_golden() {
         let d2 = max_abs_diff(&f, &feats_g.data[..n * 128]);
         eprintln!("{id}: frames={n} logmel max|Δ|={d1:.2e} features max|Δ|={d2:.2e}");
         assert!(d1 < 1e-3, "{id}: log-mel diff {d1}");
-        assert!(d2 < 5e-4, "{id}: features diff {d2}"); // f32 accumulation-order noise vs torch; see docs/frontend.md
+        assert!(d2 < 5e-4, "{id}: features diff {d2}"); // f32 accumulation-order noise vs torch
         if logmel_g.shape[0] == n + 1 {
             assert!(
                 feats_g.data[n * 128..].iter().all(|&v| v == 0.0),

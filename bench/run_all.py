@@ -80,7 +80,7 @@ def run_parakeet_cpp_bench(rows):
     return out, audio / proc, f"parakeet-cli bench proc_ms, load {data['load_ms']/1000:.2f}s excluded"
 
 def run_photon(rows, device):
-    """Moondream Photon, black box (D-5.5b): driven only via the usage on the model card, in bench/.venv-photon."""
+    """Moondream Photon, black box: driven only via the usage on the model card, in bench/.venv-photon."""
     exe = ROOT / "bench/.venv-photon/bin/python"
     script = ROOT / "bench/photon_driver.py"
     tmp = ROOT / "results/_photon_manifest.jsonl"

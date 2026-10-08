@@ -1,4 +1,4 @@
-"""Inventory of model.safetensors → docs/tensors.md, plus structural checks."""
+"""Inventory of model.safetensors → results/tensors.md, plus structural checks."""
 import hashlib, json, math, struct, sys, collections
 from pathlib import Path
 import numpy as np
@@ -71,7 +71,7 @@ def main():
         if k.startswith("encoder.layers.") and not k.startswith("encoder.layers.0."):
             continue
         lines.append(f"| `{k}` | {hdr[k]['dtype']} | {hdr[k]['shape']} |")
-    out = ROOT / "docs/tensors.md"
+    out = ROOT / "results/tensors.md"
     out.write_text("\n".join(lines) + "\n")
     print(f"wrote {out}; problems={len(problems)}; blank_row_zero={blank_row_zero}; dense={n_dense}; ternary={n_q}")
     for x in problems: print("  PROBLEM:", x)

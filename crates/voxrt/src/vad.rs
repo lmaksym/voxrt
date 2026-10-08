@@ -1,5 +1,4 @@
 //! VAD head on the subsampler output: `sigmoid(out(relu(ctx(relu(proj(x))))))`, 80 ms frames.
-//! Activation choice and segmentation rule: `docs/vad.md` (D-1.7).
 #![allow(clippy::needless_range_loop)]
 use crate::format::ModelFile;
 use crate::tensor::load_f32_shaped;
@@ -98,7 +97,7 @@ pub struct SegmentConfig {
 
 impl Default for SegmentConfig {
     fn default() -> Self {
-        // tuned on TED-LIUM 3 long-form (docs/vad.md): pause 640 ms, pad 160 ms, min 10 s, cap 60 s. The second
+        // tuned on TED-LIUM 3 long-form: pause 640 ms, pad 160 ms, min 10 s, cap 60 s. The second
         // round (2026-10-06) showed the residual gap to Photon was segment *context*, not cut placement: WER plateaus
         // at 2.55 once segments are ≥ 10 s with a 60 s cap (2.61 at 5 s / 30 s). Costs: first output after ≥ 10 s of
         // speech when streaming, ~1.6 GB peak RSS on a 20 min talk (segment-sized buffers) instead of ~1.0 GB.
@@ -136,7 +135,7 @@ impl SegmentConfig {
     }
 }
 
-/// Cut at pauses (`docs/vad.md`): speech runs separated by ≥ `min_pause_frames` non-speech frames; runs longer than
+/// Cut at pauses: speech runs separated by ≥ `min_pause_frames` non-speech frames; runs longer than
 /// `max_frames` are split at the lowest-probability frame in their last 5 s; short runs merge with the previous one.
 pub fn segment(p: &[f32], cfg: &SegmentConfig) -> Vec<Segment> {
     let t = p.len();

@@ -1,5 +1,5 @@
 //! Ternary packing (`thrush-ternary-v2`): 5 base-3 digits per byte, least significant digit first,
-//! `trit = digit - 1`. Scales: one f16 per row per `group_size` input columns. See `docs/model-format.md`.
+//! `trit = digit - 1`. Scales: one f16 per row per `group_size` input columns.
 
 use half::f16;
 

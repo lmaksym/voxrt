@@ -1,4 +1,4 @@
-//! TDT prediction network, joint and greedy loop. Semantics: `docs/tdt.md` (NeMo rule).
+//! TDT prediction network, joint and greedy loop. NeMo `GreedyTDTInfer` semantics.
 use crate::format::ModelFile;
 use crate::packed::{quantize_group, QuantAct, TernaryMatrix};
 use crate::tensor::{gemv_f16, linear, load_f16_bits, load_f32_shaped, sigmoid};
@@ -97,7 +97,7 @@ impl Decoder {
         };
         // VOXRT_DECODER=int8: per-row int8 joint head and LSTM weights (halves the per-step weight stream; argmax
         // decisions can move on near-ties, validated on the token oracle). VOXRT_HEAD=int8 quantises the head only.
-        // default int8 (test-clean WER 1.95 vs 1.96 f32, D-3c.7); `VOXRT_DECODER=f16` restores the exact f16 path
+        // default int8 (test-clean WER 1.95 vs 1.96 f32); `VOXRT_DECODER=f16` restores the exact f16 path
         let mode = std::env::var("VOXRT_DECODER").unwrap_or_else(|_| "int8".to_string());
         let int8 = mode == "int8";
         if int8 || std::env::var("VOXRT_HEAD").as_deref() == Ok("int8") {
@@ -200,7 +200,7 @@ impl Decoder {
         best
     }
 
-    /// Greedy TDT over projected encoder frames `proj [t, h]` (NeMo semantics, `docs/tdt.md`).
+    /// Greedy TDT over projected encoder frames `proj [t, h]` (NeMo semantics).
     pub fn greedy(
         &self,
         proj: &[f32],

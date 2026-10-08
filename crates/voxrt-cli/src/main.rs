@@ -242,7 +242,7 @@ fn main() -> anyhow::Result<()> {
             );
         }
         Some("trace") => {
-            // per-stage error table against one golden utterance directory (docs/golden.md)
+            // per-stage error table against one golden utterance directory
             let gdir = PathBuf::from(args.get(2).unwrap_or_else(|| usage()));
             let tr = Transcriber::load_with(model_dir(&args), precision(&args))?;
             let a = voxrt::audio::read_wav(gdir.join("audio.wav"))?;

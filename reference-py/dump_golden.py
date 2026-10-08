@@ -1,5 +1,5 @@
 """Dump golden tensors for 5 fixed dev-clean utterances → golden/<id>/*.npy + golden/manifest.json.
-CPU, fp32, deterministic. Hook points are documented in docs/golden.md."""
+CPU, fp32, deterministic."""
 import hashlib, json, re, sys, platform
 from pathlib import Path
 import numpy as np, torch, transformers

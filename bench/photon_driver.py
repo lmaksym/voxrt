@@ -1,4 +1,4 @@
-"""Black-box Photon driver (D-5.5b). Runs in bench/.venv-photon only. Usage copied from the public model card:
+"""Black-box Photon driver. Runs in bench/.venv-photon only. Usage copied from the public model card:
     with md.photon("moondream/parakeet-redux", device=...) as speech: speech.transcribe(audio="x.wav")
 usage: photon_driver.py MANIFEST.jsonl OUT.jsonl cpu|mps"""
 import json, sys, time

@@ -1,6 +1,4 @@
 //! voxrt: inference engine for `moondream/parakeet-redux`.
-//!
-//! Design notes and specifications: `docs/` at the repo root.
 
 pub mod audio;
 pub mod decoder;

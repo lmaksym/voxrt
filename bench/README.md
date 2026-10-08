@@ -55,15 +55,15 @@ method as above; dev50 measured twice in opposite orders (both rounds shown in p
 | parakeet.cpp q8_0 | teacher | 42 | 1.18 | — | — |
 
 Round 2 (reversed order): voxrt 104, Photon 99, parakeet.cpp 41. voxrt's test-clean output on this machine is byte-identical
-to the Mac run (2,620/2,620 transcripts and emissions; D-3c.18). Per core (`tests/x86_bench.rs`): VNNI 337–359 GMAC/s on
+to the Mac run (2,620/2,620 transcripts and emissions). Per core (`tests/x86_bench.rs`): VNNI 337–359 GMAC/s on
 the FF shapes, AVX2 178–181, decoder head GEMV 54 µs.
 
-
+## Install
 
 - voxrt: `cargo build --release` (models in `models/parakeet-redux`, see the top-level README).
 - Python runtimes: `uv venv bench/.venv && uv pip install --python bench/.venv/bin/python sherpa-onnx onnx-asr soundfile kaldialign parakeet-mlx`;
   sherpa-onnx int8 model from the sherpa-onnx releases into `bench/models/`.
 - parakeet.cpp: clone into `bench/parakeet.cpp`, `cmake -B build && cmake --build build`, q8_0 GGUF into `bench/models/`.
 - Photon: separate venv `bench/.venv-photon` with `moondream`, driven only through the model card's usage
-  (`bench/photon_driver.py`); its source is never read (D-5.5b).
-- The dev50 / test-clean / TED-LIUM manifests: `reference-py/` scripts (`docs/eval-sets.md`).
+  (`bench/photon_driver.py`); its source is never read.
+- The dev50 / test-clean / TED-LIUM manifests: `reference-py/` scripts.

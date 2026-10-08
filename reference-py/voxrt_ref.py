@@ -69,7 +69,7 @@ class Reference:
 
     @torch.no_grad()
     def greedy_tdt(self, proj, trace: bool = False) -> tuple[list[Emission], list[dict]]:
-        """NeMo GreedyTDTInfer semantics (docs/tdt.md)."""
+        """NeMo GreedyTDTInfer semantics."""
         T = proj.shape[0]
         emissions, steps = [], []
         state, last = None, self.blank

@@ -69,15 +69,15 @@ printf("%s\n", r->text);  voxrt_transcript_free(r);  voxrt_free(t);
 
 - **Kernels.** Ternary weights are repacked at load into 2-bit planes (429 MB resident), activations are quantised
   to int8 per token and 128-column group, and the GEMMs run on NEON `smmla` (I8MM) or `sdot` tiles. The attention
-  core, softmax and context product are int8 too. Every SIMD kernel is bit-identical to a scalar reference (tested).
-  x86 kernels (AVX-512 VNNI / AVX2) are the next port; the scalar path works everywhere.
+  core, softmax and context product are int8 too. On x86 the same layouts run on AVX-512 VNNI or AVX2 (picked at
+  run time). Every SIMD kernel is bit-identical to a scalar reference (tested), and the output is byte-identical
+  across Apple Silicon and x86.
 - **Decoder.** TDT greedy with NeMo's exact semantics; int8 joint head and LSTM through an `sdot` GEMV.
 - **Long-form.** The model's VAD head cuts at pauses into 10–60 s segments; the encoder (all cores) overlaps with
   the decoder (one core). Streaming feeds the same segment automaton, so streaming output equals offline output.
 - **Accuracy.** fp32 path: token-identical to the Python reference on all of LibriSpeech test-clean (WER 1.96 = card).
   int8: WER 1.95; the texts that differ from fp32 are near-ties the quantised model gets right as often as fp32,
-  the same deviation pattern Photon shows. Details: [`docs/kernels.md`](docs/kernels.md), [`docs/vad.md`](docs/vad.md),
-  [`docs/decisions.md`](docs/decisions.md).
+  the same deviation pattern Photon shows.
 
 ## Limits
 
@@ -101,7 +101,7 @@ scripts/c_smoke.sh · examples/python_smoke.py · swift run VoxrtSmoke    # bind
 ```
 
 voxrt is an independent implementation, built only from the CC-BY model repo, NeMo, HF transformers and public
-papers; Moondream's Photon runtime is used only as a black-box benchmark. Design decisions: [`docs/decisions.md`](docs/decisions.md).
+papers; Moondream's Photon runtime is used only as a black-box benchmark.
 
 ## Credits
 
