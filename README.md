@@ -42,12 +42,13 @@ voxrt transcribe talk.wav --threads 4 --precision f32       # exact fp32 referen
 ```
 
 ```python
-import voxrt
-t = voxrt.Transcriber("/path/to/parakeet-redux")
-r = t.transcribe("talk.wav")                 # or t.transcribe(samples, sample_rate=48000) with a numpy array
+import voxrt                                   # pip install voxrt   (voxrt[audio] adds FLAC/OGG/MP3 via soundfile)
+t = voxrt.Transcriber()                        # downloads moondream/parakeet-redux once (or a path / VOXRT_MODEL_DIR)
+r = t.transcribe("talk.mp3")                   # WAV natively, FLAC/OGG/MP3 via soundfile, anything else via ffmpeg
 print(r.text)
 for s in r.segments:
-    print(f"[{s['start']:.2f}–{s['end']:.2f}] {s['text']}")   # s['words'] has word timestamps
+    print(f"[{s.start:.2f}–{s.end:.2f}] {s.text}")   # s.words: word timestamps
+r = t.transcribe(samples, sample_rate=48000)   # numpy array, mono or [n, channels]
 st = t.stream()
 for chunk in audio_chunks_16k: segments += st.push(chunk)   # same cuts as offline, by construction
 segments += st.flush()

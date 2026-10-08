@@ -8,4 +8,11 @@
 - Long-form: VAD-head segmentation (10–60 s at pauses), segment and word timestamps, encoder/decoder pipeline,
   streaming API equal to offline by construction. Any-rate / any-format WAV input.
 - CLI `voxrt` (txt/srt/json, stdin, threads), C ABI (`include/voxrt.h`), Python wheel (abi3), Swift package (XCFramework).
-- Benchmarks: 79× real time on LibriSpeech test-clean and 92× on TED-LIUM long-form on an M4 Max CPU, WER 1.95 / 2.55.
+- x86-64 kernels: AVX-512 VNNI and AVX2 (picked at run time), AVX2+FMA/F16C elementwise paths; output byte-identical
+  across aarch64 and x86-64 (portable math, NEON-order reductions).
+- Python: `voxrt.Transcriber()` downloads the model into the Hugging Face cache on first use; FLAC/OGG/MP3 via
+  `soundfile` (`voxrt[audio]`), other formats via ffmpeg; results as dataclasses (`Transcript`, `Segment`, `Word`);
+  type hints; pytest suite in CI.
+- Streaming equals offline also for streams up to 30 s that end before a segment is finalised (whole-clip path).
+- Benchmarks: 79× real time on LibriSpeech test-clean and 92× on TED-LIUM long-form on an M4 Max CPU, WER 1.95 / 2.55;
+  105× on test-clean on an AMD Turin (GCP c4d-standard-16) vs Photon 97×.

@@ -1,6 +1,8 @@
 //! Long-form / streaming transcription (PLAN 4.2, 4.6): VAD on fixed absolute-time blocks, a segment automaton that
 //! only closes segments whose extent cannot change with future audio, and per-segment transcription.
 //! `Transcriber::transcribe_long` feeds everything through the same state machine, so streaming == offline by construction.
+//! Audio up to `long_form_threshold_s` is transcribed offline as one piece (no VAD cut); a stream that ends within that
+//! length without having emitted a segment is flushed through the same whole-clip path, so they agree there too.
 use crate::decoder::Emission;
 use crate::transcriber::{Segment, Transcriber};
 use crate::vad::{segment, SegmentConfig};
@@ -21,6 +23,7 @@ pub struct LongForm<'a> {
     pub collect_only: bool,
     pub ranges: Vec<(usize, usize)>,
     pub max_pending: usize, // high-water mark of the audio buffer, samples (diagnostics)
+    emitted: bool, // a segment has been emitted (the stream can no longer take the whole-clip path)
 }
 
 impl<'a> LongForm<'a> {
@@ -40,6 +43,7 @@ impl<'a> LongForm<'a> {
             collect_only: false,
             ranges: Vec::new(),
             max_pending: 0,
+            emitted: false,
         }
     }
 
@@ -60,8 +64,23 @@ impl<'a> LongForm<'a> {
         self.drain(false)
     }
 
-    /// End of stream: VAD on the remaining partial block, close everything.
+    /// End of stream: VAD on the remaining partial block, close everything. A short stream that has not emitted
+    /// anything is transcribed whole, exactly like `Transcriber::transcribe_long` does for audio of that length.
     pub fn flush(&mut self) -> Vec<Segment> {
+        let short = self.total as f64 / 16_000.0 <= self.tr.long_form_threshold_s;
+        if !self.collect_only && !self.emitted && self.base_sample == 0 && short {
+            let (seg, em, _) = self.tr.transcribe_one(&self.pending, 0.0);
+            self.emissions.extend(em);
+            if !seg.text.is_empty() {
+                self.segments.push(seg.clone());
+            }
+            self.emitted = true;
+            self.base_sample = self.total;
+            self.next_block = self.total;
+            self.pending.clear();
+            self.probs.clear();
+            return vec![seg];
+        }
         if std::env::var_os("VOXRT_PROFILE").is_some() {
             eprintln!(
                 "longform: max pending buffer {:.1} s, {} segments",
@@ -138,6 +157,7 @@ impl<'a> LongForm<'a> {
 
     /// Transcribe pending frames `[a, b)` (relative to the pending buffer) and record the segment.
     fn emit(&mut self, a: usize, b: usize) -> Segment {
+        self.emitted = true;
         let spf = self.spf();
         let (s0, s1) = (a * spf, (b * spf).min(self.pending.len()));
         let offset_s = (self.base_sample + s0) as f64 / 16_000.0;

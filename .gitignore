@@ -34,3 +34,6 @@ bindings/swift/CVoxrt.xcframework/
 bindings/swift/.build/
 bindings/swift/Headers/voxrt.h
 dist/
+
+# small test clip for the Python bindings (CC BY 4.0, see its ATTRIBUTION.md)
+!bindings/python/tests/audio/*.flac

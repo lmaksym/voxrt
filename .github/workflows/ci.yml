@@ -14,3 +14,25 @@ jobs:
       - run: cargo clippy --all-targets -- -D warnings
       - run: cargo test
       - uses: EmbarkStudios/cargo-deny-action@v2
+  python:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - uses: dtolnay/rust-toolchain@stable
+      # the model (≈ 180 MB) is downloaded once per revision into the Hugging Face cache
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface
+          key: hf-moondream-parakeet-redux-v1
+      - run: pip install maturin
+      - run: maturin build --release -o dist
+        working-directory: bindings/python
+      - run: pip install "$(ls bindings/python/dist/voxrt-*.whl)[test]"
+        shell: bash
+      - run: python -m pytest -q bindings/python/tests
+        env: { VOXRT_TEST_DOWNLOAD: "1" }
