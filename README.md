@@ -21,12 +21,13 @@ versions and the full table: [`bench/README.md`](bench/README.md). \* Photon's t
 ## Install
 
 ```sh
-# CLI (needs the model: git lfs clone https://huggingface.co/moondream/parakeet-redux models/parakeet-redux)
+# CLI: release downloads are voxrt-<v>-darwin-universal (Apple Silicon + Intel Macs) and voxrt-<v>-linux-x86_64;
+# the model: git lfs clone https://huggingface.co/moondream/parakeet-redux models/parakeet-redux
 cargo install --path crates/voxrt-cli          # or: cargo build --release → target/release/voxrt
 export VOXRT_MODEL_DIR=/path/to/parakeet-redux
 
-# Python
-pip install voxrt                               # wheel; or: cd bindings/python && maturin develop --release
+# Python (wheels: macOS universal2, Linux x86-64; the model downloads on first use)
+pip install voxrt                               # or: cd bindings/python && maturin develop --release
 
 # Swift: scripts/build_xcframework.sh, then add bindings/swift as a local package
 # C: cargo build --release -p voxrt-ffi → target/release/libvoxrt.{a,dylib}, header include/voxrt.h
@@ -88,7 +89,9 @@ printf("%s\n", r->text);  voxrt_transcript_free(r);  voxrt_free(t);
   but we have not scored them.
 - Streaming latency: the first segment arrives once the following pause is known (≥ 10 s of speech).
 - Peak memory ~1.6 GB on a 20-minute talk (segment-sized buffers; to trim), 0.45 GB on short clips.
-- Apple Silicon is the measured platform; x86 runs on the scalar path until the VNNI kernels land.
+- Platforms: macOS (universal: Apple Silicon and Intel), iOS, Linux x86-64; measured on Apple Silicon and AMD
+  Genoa / Turin. Intel CPUs run the same AVX2 / AVX-512 VNNI kernels but have not been benchmarked yet; Intel's 256-bit
+  AVX-VNNI (12th gen and later) is not used yet (those CPUs take the AVX2 path). Windows and Linux arm64 builds: not yet.
 
 ## Development
 

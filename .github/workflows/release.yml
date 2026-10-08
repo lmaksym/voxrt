@@ -8,23 +8,36 @@ jobs:
     strategy:
       matrix:
         include:
-          - { os: ubuntu-latest, target: x86_64-unknown-linux-gnu }
-          - { os: macos-latest, target: aarch64-apple-darwin }
+          - { os: ubuntu-latest, name: linux-x86_64, targets: x86_64-unknown-linux-gnu }
+          # universal: arm64 + x86_64 (Intel Macs, cross-compiled), merged with lipo
+          - { os: macos-latest, name: darwin-universal, targets: aarch64-apple-darwin x86_64-apple-darwin }
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - run: cargo build --release -p voxrt-cli -p voxrt-ffi
-      - run: |
-          mkdir -p dist
-          tar -C target/release -czf dist/voxrt-${{ github.ref_name }}-${{ matrix.target }}.tar.gz voxrt
-          tar -czf dist/libvoxrt-${{ github.ref_name }}-${{ matrix.target }}.tar.gz -C target/release $(ls target/release | grep -E '^libvoxrt\.(a|so|dylib)$') -C "$PWD" include/voxrt.h
+      - run: rustup target add ${{ matrix.targets }}
+      - shell: bash
+        run: |
+          set -euo pipefail
+          for T in ${{ matrix.targets }}; do cargo build --release -p voxrt-cli -p voxrt-ffi --target "$T"; done
+          mkdir -p dist out
+          for f in voxrt libvoxrt.a libvoxrt.so libvoxrt.dylib; do
+            ins=(); for T in ${{ matrix.targets }}; do [ -f "target/$T/release/$f" ] && ins+=("target/$T/release/$f"); done
+            [ ${#ins[@]} -eq 0 ] && continue
+            if [ ${#ins[@]} -gt 1 ]; then lipo -create "${ins[@]}" -output "out/$f"; else cp "${ins[0]}" "out/$f"; fi
+          done
+          tar -C out -czf dist/voxrt-${{ github.ref_name }}-${{ matrix.name }}.tar.gz voxrt
+          tar -czf dist/libvoxrt-${{ github.ref_name }}-${{ matrix.name }}.tar.gz -C out $(ls out | grep '^libvoxrt') -C "$PWD" include/voxrt.h
       - uses: actions/upload-artifact@v4
-        with: { name: cli-${{ matrix.target }}, path: dist/* }
+        with:
+          name: cli-${{ matrix.name }}
+          path: dist/*
   wheels:
     strategy:
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        include:
+          - { os: ubuntu-latest, target: x86_64 }
+          - { os: macos-latest, target: universal2-apple-darwin }   # one wheel for Apple Silicon and Intel Macs
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -32,10 +45,13 @@ jobs:
         with:
           working-directory: bindings/python
           command: build
+          target: ${{ matrix.target }}
           args: --release -o ../../dist
           manylinux: auto
       - uses: actions/upload-artifact@v4
-        with: { name: wheels-${{ matrix.os }}, path: dist/*.whl }
+        with:
+          name: wheels-${{ matrix.os }}
+          path: dist/*.whl
   publish:
     needs: [cli, wheels]
     runs-on: ubuntu-latest
