@@ -8,19 +8,22 @@ fn tgemm_variants() {
     // (kernel, tile m, tile n, K splits)
     // (kernel, tile m, tile n, threads, K splits)
     let variants: &[(&str, usize, usize, usize, usize)] = &[
-        ("tgemm_f_16_64_16", 16, 64, 128, 1),
-        ("tgemm_f_32_64_16", 32, 64, 128, 1),
-        ("tgemm_f_16_64_16", 16, 64, 128, 4),
-        ("tgemm_f_32_64_16", 32, 64, 128, 4),
+        ("tgemm_16", 16, 64, 128, 1),
+        ("tgemm_16", 16, 64, 128, 4),
+        ("tgemm_32", 32, 64, 128, 1),
+        ("tgemm_32", 32, 64, 128, 4),
     ];
     for &(m, n, k) in &[
+        (34, 4096, 1024),
+        (34, 1024, 4096),
         (72, 4096, 1024),
         (72, 1024, 4096),
-        (128, 4096, 1024),
+        (200, 4096, 1024),
         (200, 1024, 4096),
         (333, 4096, 1024),
         (333, 1024, 4096),
         (746, 4096, 1024),
+        (746, 1024, 4096),
     ] {
         println!("M={m:4} N={n:4} K={k:4}");
         for &(name, bm, bn, threads, splits) in variants {

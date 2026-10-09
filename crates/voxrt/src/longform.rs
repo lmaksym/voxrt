@@ -107,8 +107,7 @@ impl<'a> LongForm<'a> {
         let hi = (end + self.ctx_samples).min(self.total);
         let block = &self.pending[lo - self.base_sample..hi - self.base_sample];
         let (feats, t) = self.tr.frontend.compute(block);
-        let sub = self.tr.encoder.subsampling.forward(&feats, t);
-        let te = self.tr.encoder.subsampling.out_frames(t);
+        let (sub, te) = self.tr.subsample(&feats, t);
         let p = self.tr.vad.probs(&sub, te);
         let skip = (start - lo) / spf;
         let want = (end - start) / spf;

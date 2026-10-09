@@ -26,19 +26,19 @@ type Enc = ProtocolObject<dyn MTLComputeCommandEncoder>;
 /// Receives each encoding step: its kind (for the profiler) and the closure that encodes it.
 type StepSink<'a> = dyn FnMut(usize, &dyn Fn(&Enc)) + 'a;
 
-/// Split-K policy (measured with `tests/metal_bench.rs`): 4 K slices for the K = 4096 projections up to 512 tokens
-/// and for every projection up to 96 tokens, where too few threadgroups would otherwise walk the whole K loop.
+/// Split-K policy (measured with `tests/metal_bench.rs`): the K = 4096 projections (feed-forward down) run as 4 K
+/// slices plus a reduction at every length; for K = 1024 one slice is as fast or faster.
 const SPLITS: usize = 4;
-const SPLIT_MAX_T: usize = 512;
-const SPLIT_ALL_MAX_T: usize = 96;
 /// Step kinds reported by `VOXRT_PROFILE_GPU`.
-const STEP_KINDS: [&str; 5] = [
+const STEP_KINDS: [&str; 6] = [
     "layernorm",
     "ternary gemm",
     "attention gemm",
     "softmax",
     "conv",
+    "subsampling",
 ];
+const SUB: usize = 5;
 
 fn gpu_err(what: &str, e: impl std::fmt::Display) -> Error {
     Error::Format(format!("metal: {what}: {e}"))
@@ -78,6 +78,25 @@ struct SoftP {
 }
 
 #[repr(C)]
+struct SubP {
+    t_in: u32,
+    f_in: u32,
+    t_out: u32,
+    f_out: u32,
+    c: u32,
+    k: u32,
+    s: u32,
+    pad: u32,
+}
+
+#[repr(C)]
+struct BiasP {
+    rows: u32,
+    n: u32,
+    relu: u32,
+}
+
+#[repr(C)]
 struct ConvP {
     t: u32,
     d: u32,
@@ -97,6 +116,9 @@ struct Gpu {
     qbias: Pso,
     relsoftmax: Pso,
     conv: Pso,
+    sub_conv0_dw: Pso,
+    sub_dw: Pso,
+    bias_act: Pso,
 }
 
 impl Gpu {
@@ -106,20 +128,30 @@ impl Gpu {
         let queue = device
             .newCommandQueue()
             .ok_or_else(|| gpu_err("queue", "newCommandQueue failed"))?;
+        let t0 = std::time::Instant::now();
         let src = NSString::from_str(include_str!("kernels.metal"));
         let lib = device
             .newLibraryWithSource_options_error(&src, None)
             .map_err(|e| gpu_err("compile", e.localizedDescription()))?;
+        if std::env::var_os("VOXRT_PROFILE").is_some() {
+            eprintln!(
+                "metal: shader library compiled in {:.3}s",
+                t0.elapsed().as_secs_f64()
+            );
+        }
         let pso = |name: &str| pipeline(&device, &lib, name);
         Ok(Self {
-            tgemm_small: pso("tgemm_f_16_64_16")?,
-            tgemm_large: pso("tgemm_f_32_64_16")?,
+            tgemm_small: pso("tgemm_16")?,
+            tgemm_large: pso("tgemm_32")?,
             tgemm_reduce: pso("tgemm_reduce")?,
             bgemm: pso("bgemm")?,
             layernorm: pso("layernorm")?,
             qbias: pso("qbias")?,
             relsoftmax: pso("relsoftmax")?,
             conv: pso("glu_dwconv_silu")?,
+            sub_conv0_dw: pso("sub_conv0_dw")?,
+            sub_dw: pso("sub_dw")?,
+            bias_act: pso("bias_act")?,
             device,
             queue,
             lib,
@@ -357,6 +389,32 @@ struct Layer {
     k: usize,
 }
 
+/// Subsampling weights on the GPU (same layouts as the CPU module: taps [k*k, C], pointwise [C_out, C_in], linear
+/// [d, F3*C] with channels-last columns).
+struct Sub {
+    w0: Buf,
+    b0: Buf,
+    wd: [Buf; 2],
+    bd: [Buf; 2],
+    pw: [Buf; 2],
+    pb: [Buf; 2],
+    lw: Buf,
+    lb: Buf,
+    c: usize,
+    k: usize,
+    s: usize,
+    n_mels: usize,
+}
+
+/// Subsampling scratch (grown on demand): features, stage-1 depthwise output, pointwise outputs.
+struct SubWs {
+    feats: Buf,
+    y1: Buf,
+    x2: Buf,
+    y2: Buf,
+    x3: Buf,
+}
+
 /// Per-length scratch buffers (grown on demand).
 struct Ws {
     t: usize,
@@ -378,6 +436,8 @@ struct Ws {
 
 pub struct GpuEncoder {
     gpu: Gpu,
+    sub: Sub,
+    sub_ws: Mutex<Option<(usize, SubWs)>>,
     layers: Vec<Layer>,
     d: usize,
     heads: usize,
@@ -463,8 +523,25 @@ impl GpuEncoder {
             });
         }
         let ff = layers[0].ff1.0.out;
+        let cpu_sub = crate::subsampling::Subsampling::load(m)?;
+        let sub = Sub {
+            w0: gpu.upload(&cpu_sub.conv0_w),
+            b0: gpu.upload(&cpu_sub.conv0_b),
+            wd: [gpu.upload(&cpu_sub.dw_w[0]), gpu.upload(&cpu_sub.dw_w[1])],
+            bd: [gpu.upload(&cpu_sub.dw_b[0]), gpu.upload(&cpu_sub.dw_b[1])],
+            pw: [gpu.upload(&cpu_sub.pw_w[0]), gpu.upload(&cpu_sub.pw_w[1])],
+            pb: [gpu.upload(&cpu_sub.pw_b[0]), gpu.upload(&cpu_sub.pw_b[1])],
+            lw: gpu.upload(&cpu_sub.lin_w),
+            lb: gpu.upload(&cpu_sub.lin_b),
+            c: cpu_sub.channels,
+            k: cpu_sub.kernel,
+            s: cpu_sub.stride,
+            n_mels: cpu_sub.n_mels,
+        };
         Ok(Self {
             gpu,
+            sub,
+            sub_ws: Mutex::new(None),
             layers,
             d,
             heads,
@@ -492,40 +569,123 @@ impl GpuEncoder {
             p: g.buf(h * t * t * f),
             ctx: g.buf(t * d * f),
             a: g.buf(t * d * f),
-            partial: g
-                .buf(SPLITS * (t.min(SPLIT_MAX_T) * d).max(t.min(SPLIT_ALL_MAX_T) * self.ff) * f),
+            partial: g.buf(SPLITS * t * d * f),
         }
     }
 
-    /// Encoder layers on `x` (`[t, d]`, the subsampling output) → `[t, d]`.
+    /// Encoder layers on `x` (`[t, d]`, the subsampling output, computed elsewhere) → `[t, d]`.
     pub fn forward(&self, x: &[f32], t: usize) -> Vec<f32> {
+        assert_eq!(x.len(), t * self.d);
+        self.run(t, Some(x), None)
+    }
+
+    /// The whole encoder on the GPU: log-mel `feats` `[t_in, n_mels]` → subsampling → layers → `([t_e, d], t_e)`.
+    pub fn forward_feats(&self, feats: &[f32], t_in: usize) -> (Vec<f32>, usize) {
+        let te = self.sub_grids(t_in)[3].0;
+        (self.run(te, None, Some((feats, t_in))), te)
+    }
+
+    /// Prepare buffers and pipelines for inputs up to `t` encoder frames by running the encoder once on silence
+    /// (moves first-call latency to load time; also wakes the GPU, e.g. when recording starts).
+    pub fn warm_up(&self, t: usize) {
+        let t_in = t * 8;
+        let feats = vec![0f32; t_in * self.sub.n_mels];
+        let _ = self.forward_feats(&feats, t_in);
+    }
+
+    /// (t, f) grids of the subsampling stages: input, conv0 output, depthwise 1, depthwise 2.
+    fn sub_grids(&self, t_in: usize) -> [(usize, usize); 4] {
+        let (k, s) = (self.sub.k, self.sub.s);
+        let pad = (k - 1) / 2;
+        let next = |(t, f): (usize, usize)| {
+            (
+                crate::subsampling::out_len(t, k, s, pad),
+                crate::subsampling::out_len(f, k, s, pad),
+            )
+        };
+        let g0 = (t_in, self.sub.n_mels);
+        let g1 = next(g0);
+        let g2 = next(g1);
+        [g0, g1, g2, next(g2)]
+    }
+
+    /// Subsampling only (log-mel `feats` `[t_in, n_mels]` → `([t_e, d], t_e)`): the VAD head's input in long-form
+    /// segmentation.
+    pub fn subsample(&self, feats: &[f32], t_in: usize) -> (Vec<f32>, usize) {
+        let te = self.sub_grids(t_in)[3].0;
+        (self.run_with(te, None, Some((feats, t_in)), false), te)
+    }
+
+    fn run(&self, t: usize, x: Option<&[f32]>, feats: Option<(&[f32], usize)>) -> Vec<f32> {
+        self.run_with(t, x, feats, true)
+    }
+
+    fn run_with(
+        &self,
+        t: usize,
+        x: Option<&[f32]>,
+        feats: Option<(&[f32], usize)>,
+        with_layers: bool,
+    ) -> Vec<f32> {
         let d = self.d;
-        assert_eq!(x.len(), t * d);
+        let layers: &[Layer] = if with_layers { &self.layers } else { &[] };
         let mut guard = self.ws.lock().unwrap();
         if guard.as_ref().is_none_or(|w| w.t < t) {
-            *guard = Some(self.workspace(t.next_power_of_two().max(64)));
+            *guard = Some(self.workspace((t + t / 4).max(64))); // grow in 25 % steps
         }
         let ws = guard.as_ref().unwrap();
-        write(&ws.x[0], x);
+        let mut sub_guard = self.sub_ws.lock().unwrap();
+        if let Some((f, t_in)) = feats {
+            let g = self.sub_grids(t_in);
+            // stage-1 buffers hold [t2·f2, C], stage-2 buffers [t3·f3, C] (4× smaller); grow by 25 % steps
+            let need = (g[2].0 * g[2].1 * self.sub.c).max(1);
+            if sub_guard.as_ref().is_none_or(|(cap, _)| *cap < need) {
+                let n = need + need / 4;
+                let n2 = n.div_ceil(4) + 4 * self.sub.c * g[3].1;
+                let b = |floats: usize| self.gpu.buf(floats * 4);
+                *sub_guard = Some((
+                    n,
+                    SubWs {
+                        feats: b(f.len()),
+                        y1: b(n),
+                        x2: b(n),
+                        y2: b(n2),
+                        x3: b(n2),
+                    },
+                ));
+            }
+            let sw = &mut sub_guard.as_mut().unwrap().1;
+            if sw.feats.length() < std::mem::size_of_val(f) {
+                sw.feats = self.gpu.buf(std::mem::size_of_val(f));
+            }
+            write(&sw.feats, f);
+        } else if let Some(x) = x {
+            write(&ws.x[0], x);
+        }
         write(&ws.pos, &rel_pos_table(t, d));
+        let sub = feats.map(|(_, t_in)| (self.sub_grids(t_in), &sub_guard.as_ref().unwrap().1));
         let mut cur = 0;
         if std::env::var_os("VOXRT_PROFILE_GPU").is_some() {
             // one command buffer per step, GPU time per step kind (diagnostics; much slower overall)
             let mut gpu_s = [0f64; STEP_KINDS.len()];
-            for l in &self.layers {
-                self.encode_layer(l, ws, cur, t, &mut |kind, f| {
-                    let cb = self
-                        .gpu
-                        .queue
-                        .commandBuffer()
-                        .expect("metal command buffer");
-                    let enc = cb.computeCommandEncoder().expect("metal compute encoder");
-                    f(&enc);
-                    enc.endEncoding();
-                    cb.commit();
-                    cb.waitUntilCompleted();
-                    gpu_s[kind] += cb.GPUEndTime() - cb.GPUStartTime();
-                });
+            let mut sink = |kind: usize, f: &dyn Fn(&Enc)| {
+                let cb = self
+                    .gpu
+                    .queue
+                    .commandBuffer()
+                    .expect("metal command buffer");
+                let enc = cb.computeCommandEncoder().expect("metal compute encoder");
+                f(&enc);
+                enc.endEncoding();
+                cb.commit();
+                cb.waitUntilCompleted();
+                gpu_s[kind] += cb.GPUEndTime() - cb.GPUStartTime();
+            };
+            if let Some((g, sw)) = sub {
+                self.encode_subsampling(&g, sw, ws, &mut sink);
+            }
+            for l in layers {
+                self.encode_layer(l, ws, cur, t, &mut sink);
                 cur ^= 1;
             }
             let total: f64 = gpu_s.iter().sum();
@@ -546,7 +706,10 @@ impl GpuEncoder {
                 .commandBuffer()
                 .expect("metal command buffer");
             let enc = cb.computeCommandEncoder().expect("metal compute encoder");
-            for l in &self.layers {
+            if let Some((g, sw)) = sub {
+                self.encode_subsampling(&g, sw, ws, &mut |_, f| f(&enc));
+            }
+            for l in layers {
                 self.encode_layer(l, ws, cur, t, &mut |_, f| f(&enc));
                 cur ^= 1;
             }
@@ -562,6 +725,122 @@ impl GpuEncoder {
         out
     }
 
+    /// Subsampling into `ws.x[0]`: fused conv0+ReLU+depthwise → pointwise+ReLU → depthwise → pointwise+ReLU →
+    /// linear (+bias), channels-last as on the CPU.
+    fn encode_subsampling(
+        &self,
+        g: &[(usize, usize); 4],
+        sw: &SubWs,
+        ws: &Ws,
+        step: &mut StepSink,
+    ) {
+        let (c, k, s, d) = (self.sub.c, self.sub.k, self.sub.s, self.d);
+        let pad = (k - 1) / 2;
+        let u = |v: usize| v as u32;
+        let grid3 = |(t, f): (usize, usize)| size(c.div_ceil(64), f, t);
+        let stage = |gi: (usize, usize), go: (usize, usize)| SubP {
+            t_in: u(gi.0),
+            f_in: u(gi.1),
+            t_out: u(go.0),
+            f_out: u(go.1),
+            c: u(c),
+            k: u(k),
+            s: u(s),
+            pad: u(pad),
+        };
+        let sp1 = stage(g[1], g[2]);
+        let in0 = [u(g[0].0), u(g[0].1)];
+        step(SUB, &|e| {
+            let bufs = [
+                (&sw.feats, 0),
+                (&self.sub.w0, 0),
+                (&self.sub.b0, 0),
+                (&self.sub.wd[0], 0),
+                (&self.sub.bd[0], 0),
+                (&sw.y1, 0),
+            ];
+            bind(e, &self.gpu.sub_conv0_dw, &bufs, &sp1);
+            // SAFETY: plain [u32; 2] constant at slot 7.
+            unsafe { e.setBytes_length_atIndex(NonNull::from(&in0).cast(), 8, 7) };
+            e.dispatchThreadgroups_threadsPerThreadgroup(grid3(g[2]), size(64, 1, 1));
+        });
+        let pw = |e: &Enc, x: &Buf, y: &Buf, i: usize, rows: usize| {
+            let p = BGemmP {
+                m: u(rows),
+                n: u(c),
+                k: u(c),
+                lda: u(c),
+                ldb: u(c),
+                ldc: u(c),
+                sa: 0,
+                sb: 0,
+                sc: 0,
+                trans_b: 1,
+                alpha: 1.0,
+            };
+            self.bgemm(e, (x, 0), (&self.sub.pw[i], 0), (y, 0), p, 1);
+            let bp = BiasP {
+                rows: u(rows),
+                n: u(c),
+                relu: 1,
+            };
+            bind(e, &self.gpu.bias_act, &[(y, 0), (&self.sub.pb[i], 0)], &bp);
+            e.dispatchThreadgroups_threadsPerThreadgroup(
+                size(c.div_ceil(256), rows, 1),
+                size(256, 1, 1),
+            );
+        };
+        step(SUB, &|e| pw(e, &sw.y1, &sw.x2, 0, g[2].0 * g[2].1));
+        let sp2 = stage(g[2], g[3]);
+        step(SUB, &|e| {
+            bind(
+                e,
+                &self.gpu.sub_dw,
+                &[
+                    (&sw.x2, 0),
+                    (&self.sub.wd[1], 0),
+                    (&self.sub.bd[1], 0),
+                    (&sw.y2, 0),
+                ],
+                &sp2,
+            );
+            e.dispatchThreadgroups_threadsPerThreadgroup(grid3(g[3]), size(64, 1, 1));
+        });
+        step(SUB, &|e| pw(e, &sw.y2, &sw.x3, 1, g[3].0 * g[3].1));
+        let (te, flat) = (g[3].0, g[3].1 * c);
+        step(SUB, &|e| {
+            let p = BGemmP {
+                m: u(te),
+                n: u(d),
+                k: u(flat),
+                lda: u(flat),
+                ldb: u(flat),
+                ldc: u(d),
+                sa: 0,
+                sb: 0,
+                sc: 0,
+                trans_b: 1,
+                alpha: 1.0,
+            };
+            self.bgemm(e, (&sw.x3, 0), (&self.sub.lw, 0), (&ws.x[0], 0), p, 1);
+            let bp = BiasP {
+                rows: u(te),
+                n: u(d),
+                relu: 0,
+            };
+            bind(
+                e,
+                &self.gpu.bias_act,
+                &[(&ws.x[0], 0), (&self.sub.lb, 0)],
+                &bp,
+            );
+            e.dispatchThreadgroups_threadsPerThreadgroup(
+                size(d.div_ceil(256), te, 1),
+                size(256, 1, 1),
+            );
+        });
+    }
+
     fn ln(&self, enc: &Enc, n: &LayerNorm, x: &Buf, y: &Buf, t: usize) {
         let d = self.d as u32;
         bind(
@@ -574,7 +853,7 @@ impl GpuEncoder {
     }
 
     /// Ternary GEMM with the policy measured by `tests/metal_bench.rs`: 16 × 64 tiles up to 64 tokens, 32 × 64 above,
-    /// split-K (plus a reduction) per `SPLITS`.
+    /// split-K (plus a reduction) for the K = 4096 projections.
     #[allow(clippy::too_many_arguments)]
     fn tgemm(
         &self,
@@ -592,9 +871,7 @@ impl GpuEncoder {
         } else {
             (&self.gpu.tgemm_large, 32)
         };
-        let splits = if (l.inp >= 4096 && l.out <= self.d && t <= SPLIT_MAX_T)
-            || (t <= SPLIT_ALL_MAX_T && l.out <= self.ff)
-        {
+        let splits = if l.inp >= 4096 && l.out <= self.d {
             SPLITS
         } else {
             1
@@ -609,8 +886,8 @@ impl GpuEncoder {
             kchunk: (l.inp / splits) as u32,
         };
         bind(enc, pso, &[(x, 0), (&l.w, 0), (&l.s, 0), (y, 0)], &p);
-        // SAFETY: the partial buffer holds SPLITS × max(min(t, 512) · d, min(t, 96) · ff) floats, which covers both
-        // split cases above (with one slice the kernel never touches it).
+        // SAFETY: the partial buffer holds SPLITS × t × d floats and splitting happens only for outputs ≤ d (with one
+        // slice the kernel never touches it).
         unsafe { enc.setBuffer_offset_atIndex(Some(&ws.partial), 0, 5) };
         enc.dispatchThreadgroups_threadsPerThreadgroup(
             size(l.out / 64, t.div_ceil(bm), splits),

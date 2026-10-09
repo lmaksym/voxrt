@@ -64,7 +64,10 @@ impl Transcriber {
         let gpu = match std::env::var("VOXRT_DEVICE").as_deref() {
             // GPUs without Apple's simdgroup matrix units (e.g. Intel Macs) cannot build the kernels: fall back to CPU
             Ok("gpu") => match crate::metal::GpuEncoder::load(&m) {
-                Ok(g) => Some(g),
+                Ok(g) => {
+                    g.warm_up(64);
+                    Some(g)
+                }
                 Err(e) => {
                     eprintln!("voxrt: GPU unavailable ({e}); using the CPU");
                     None
@@ -99,21 +102,26 @@ impl Transcriber {
         })
     }
 
-    /// Encoder on the configured device: CPU layers, or subsampling on the CPU and the layers on the GPU.
+    /// Subsampling output `([t_e, d], t_e)` for log-mel `feats` on the configured device (VAD input).
+    pub fn subsample(&self, feats: &[f32], t: usize) -> (Vec<f32>, usize) {
+        #[cfg(all(feature = "metal", target_vendor = "apple"))]
+        if let Some(g) = &self.gpu {
+            return g.subsample(feats, t);
+        }
+        (
+            self.encoder.subsampling.forward(feats, t),
+            self.encoder.subsampling.out_frames(t),
+        )
+    }
+
+    /// Encoder on the configured device: the CPU, or the GPU (subsampling and layers in one command buffer).
     pub fn encode(&self, feats: &[f32], t: usize) -> (Vec<f32>, usize) {
         #[cfg(all(feature = "metal", target_vendor = "apple"))]
         if let Some(g) = &self.gpu {
-            let te = self.encoder.subsampling.out_frames(t);
             let t0 = std::time::Instant::now();
-            let x = self.encoder.subsampling.forward(feats, t);
-            let t1 = std::time::Instant::now();
-            let out = g.forward(&x, te);
+            let (out, te) = g.forward_feats(feats, t);
             if std::env::var_os("VOXRT_PROFILE").is_some() {
-                eprintln!(
-                    "gpu encoder (T_e={te}): subsampling {:.3}s · layers {:.3}s",
-                    (t1 - t0).as_secs_f64(),
-                    t1.elapsed().as_secs_f64()
-                );
+                eprintln!("gpu encoder (T_e={te}): {:.3}s", t0.elapsed().as_secs_f64());
             }
             return (out, te);
         }

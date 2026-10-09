@@ -10,6 +10,8 @@ USAGE
   voxrt transcribe <FILE.wav | -> [options]     transcribe a WAV file (or WAV bytes on stdin with `-`)
   voxrt batch MANIFEST.jsonl OUT.jsonl [options]  transcribe every {id, audio} row of a manifest (resumable)
   voxrt inspect [MODEL_DIR]                       validate a model directory
+  voxrt bench FILE.wav [--seconds 2,5,10,27,60] [--repeat 10]
+                                                  latency / CPU benchmark on clips cut from FILE (JSON lines)
   voxrt version | --version
   voxrt help | --help
 
@@ -29,6 +31,15 @@ ENVIRONMENT
   VOXRT_MODEL_DIR, RAYON_NUM_THREADS, VOXRT_VAD_MIN / VOXRT_VAD_MAX (segment length bounds in 80 ms frames),
   VOXRT_PROFILE=1 (stage timings on stderr)
 ";
+
+/// Process CPU time (user + system), seconds.
+fn cpu_time_s() -> f64 {
+    // SAFETY: getrusage fills the struct for the calling process.
+    let mut ru: libc::rusage = unsafe { std::mem::zeroed() };
+    unsafe { libc::getrusage(libc::RUSAGE_SELF, &mut ru) };
+    let tv = |t: libc::timeval| t.tv_sec as f64 + t.tv_usec as f64 * 1e-6;
+    tv(ru.ru_utime) + tv(ru.ru_stime)
+}
 
 fn usage() -> ! {
     eprint!("{HELP}");
@@ -240,6 +251,56 @@ fn main() -> anyhow::Result<()> {
                 "done: {n} new utts, {:.1}× real time",
                 audio_s / t0.elapsed().as_secs_f32().max(1e-6)
             );
+        }
+        Some("bench") => {
+            let file = args.get(2).unwrap_or_else(|| usage());
+            let opt = |k: &str| {
+                args.iter()
+                    .position(|a| a == k)
+                    .and_then(|i| args.get(i + 1))
+                    .map(String::as_str)
+            };
+            let secs: Vec<f64> = opt("--seconds")
+                .unwrap_or("2,5,10,27,60")
+                .split(',')
+                .filter_map(|v| v.parse().ok())
+                .collect();
+            let repeat: usize = opt("--repeat").and_then(|v| v.parse().ok()).unwrap_or(10);
+            let t0 = std::time::Instant::now();
+            let tr = Transcriber::load_with(model_dir(&args), precision(&args))?;
+            let load_ms = t0.elapsed().as_secs_f64() * 1e3;
+            let audio = voxrt::audio::read_wav(file)?.samples;
+            let device = std::env::var("VOXRT_DEVICE").unwrap_or_else(|_| "cpu".into());
+            for &s in &secs {
+                let n = ((s * 16_000.0) as usize).min(audio.len());
+                let clip = &audio[..n];
+                let run = || {
+                    let (c0, w0) = (cpu_time_s(), std::time::Instant::now());
+                    let r = tr.transcribe_long(clip);
+                    std::hint::black_box(&r);
+                    (w0.elapsed().as_secs_f64(), cpu_time_s() - c0)
+                };
+                let (first, _) = run();
+                let mut walls = Vec::with_capacity(repeat);
+                let mut cpu = 0.0;
+                for _ in 0..repeat {
+                    let (w, c) = run();
+                    walls.push(w);
+                    cpu += c;
+                }
+                walls.sort_by(|a, b| a.partial_cmp(b).unwrap());
+                let med = walls[walls.len() / 2];
+                let audio_s = n as f64 / 16_000.0;
+                println!(
+                    "{}",
+                    serde_json::json!({
+                        "device": device, "audio_s": audio_s, "load_ms": (load_ms * 10.0).round() / 10.0,
+                        "first_ms": (first * 1e4).round() / 10.0, "warm_ms": (med * 1e4).round() / 10.0,
+                        "rtf": (audio_s / med).round(), "cpu_ms_per_run": (cpu / repeat as f64 * 1e4).round() / 10.0,
+                        "cpu_cores_busy": ((cpu / repeat as f64) / med * 10.0).round() / 10.0,
+                    })
+                );
+            }
         }
         Some("trace") => {
             // per-stage error table against one golden utterance directory

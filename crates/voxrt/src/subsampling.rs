@@ -12,18 +12,18 @@ pub struct Subsampling {
     pub stride: usize,
     pub n_mels: usize,
     pub d_model: usize,
-    conv0_w: Vec<f32>, // [k*k, C]  (tap-major, channel-minor)
-    conv0_b: Vec<f32>,
-    dw_w: [Vec<f32>; 2], // [k*k, C]
-    dw_b: [Vec<f32>; 2],
-    pw_w: [Vec<f32>; 2], // [C_out, C_in] for `linear`
-    pw_b: [Vec<f32>; 2],
-    lin_w: Vec<f32>, // [d_model, F3*C] with columns permuted to channels-last order (f*C + c)
-    lin_b: Vec<f32>,
+    pub(crate) conv0_w: Vec<f32>, // [k*k, C]  (tap-major, channel-minor)
+    pub(crate) conv0_b: Vec<f32>,
+    pub(crate) dw_w: [Vec<f32>; 2], // [k*k, C]
+    pub(crate) dw_b: [Vec<f32>; 2],
+    pub(crate) pw_w: [Vec<f32>; 2], // [C_out, C_in] for `linear`
+    pub(crate) pw_b: [Vec<f32>; 2],
+    pub(crate) lin_w: Vec<f32>, // [d_model, F3*C] with columns permuted to channels-last order (f*C + c)
+    pub(crate) lin_b: Vec<f32>,
 }
 
 #[inline]
-fn out_len(n: usize, k: usize, s: usize, p: usize) -> usize {
+pub(crate) fn out_len(n: usize, k: usize, s: usize, p: usize) -> usize {
     (n + 2 * p - k) / s + 1
 }
 

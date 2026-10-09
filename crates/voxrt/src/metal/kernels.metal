@@ -5,11 +5,9 @@
 using namespace metal;
 
 // ---------------------------------------------------------------------------------------------------------------
-// Ternary GEMM: Y[m, n] (=|+=) X[m, :] · W[n, :]ᵀ, as a template over the staging type T (float or half; the
-// accumulators are always f32), the tile BM × BN and the k step BK. Four simdgroups split the BN columns; each owns
-// BM/8 × BN/32 simdgroup 8×8 accumulators. W is decoded (trit · scale) into threadgroup memory.
-// Split-K: the grid's z dimension partitions K in `kchunk` slices; with more than one slice each writes its raw
-// partial sums to P[z] and `tgemm_reduce` applies the epilogue.
+// Ternary GEMM: Y[m, n] (=|+=) X[m, :] · W[n, :]ᵀ with f32 accumulators in simdgroup 8×8 tiles; W is decoded
+// (trit · scale) into threadgroup memory. Split-K: the grid's z dimension partitions K in `kchunk` slices; with more
+// than one slice each writes its raw partial sums to P[z] and `tgemm_reduce` applies the epilogue.
 struct TGemmP {
     uint M, N, K, G;  // rows, outputs, inputs, group size (multiple of BK)
     uint mode;        // 0: store, 1: store SiLU, 2: y += alpha · v
@@ -23,21 +21,21 @@ static inline void tg_store(device float* y, float v, uint mode, float alpha) {
     else *y = v;
 }
 
-template <typename T, uint BM, uint BN, uint BK, uint SGR, uint SGC>
+// Operand pipeline: vectorised loads, conflict-free decode. X tile loaded as float4; each of 128 threads decodes
+// a 32-bit word (16 trits) of one weight row (thread n = tid % 64 owns row n, (tid / 64) picks the 16-wide k half),
+// writing along n so a simdgroup's stores hit consecutive banks. BM ∈ {16, 32}, BN = 64, BK ∈ {16, 32}, 4 simdgroups.
+template <typename T, uint BM, uint BK>
 kernel void tgemm_t(device const float* X [[buffer(0)]],
-                    device const uchar* W [[buffer(1)]],
-                    device const float* S [[buffer(2)]],
-                    device float* Y [[buffer(3)]],
-                    constant TGemmP& p [[buffer(4)]],
-                    device float* P [[buffer(5)]],
-                    uint3 tg [[threadgroup_position_in_grid]],
-                    uint3 ntg [[threadgroups_per_grid]],
-                    uint tid [[thread_index_in_threadgroup]],
-                    uint sg [[simdgroup_index_in_threadgroup]]) {
-    // SGR × SGC simdgroups (32 · SGR · SGC threads); simdgroup (sg / SGC, sg % SGC) owns a (BM/SGR) × (BN/SGC) block
-    constexpr uint FR = BM / (8 * SGR), FC = BN / (8 * SGC), NT = 32 * SGR * SGC;
-    // operand tiles during the k loop, the f32 output tile afterwards: one aliased allocation (occupancy is bounded
-    // by threadgroup memory)
+                     device const uchar* W [[buffer(1)]],
+                     device const float* S [[buffer(2)]],
+                     device float* Y [[buffer(3)]],
+                     constant TGemmP& p [[buffer(4)]],
+                     device float* P [[buffer(5)]],
+                     uint3 tg [[threadgroup_position_in_grid]],
+                     uint3 ntg [[threadgroups_per_grid]],
+                     uint tid [[thread_index_in_threadgroup]],
+                     uint sg [[simdgroup_index_in_threadgroup]]) {
+    constexpr uint BN = 64, FR = BM / 8, FC = 2;
     constexpr uint OPS = (BM * BK + BK * BN) * sizeof(T), OUT = BM * BN * sizeof(float);
     threadgroup uchar smem[OPS > OUT ? OPS : OUT];
     threadgroup T* Xs = (threadgroup T*)smem;              // [m][k]
@@ -46,25 +44,29 @@ kernel void tgemm_t(device const float* X [[buffer(0)]],
     const uint m0 = tg.y * BM, n0 = tg.x * BN;
     const uint kq = p.K / 4, ng = p.K / p.G;
     const uint kb = tg.z * p.kchunk, ke = min(p.K, kb + p.kchunk);
-    const uint sr = (sg / SGC) * (BM / SGR), scol = (sg % SGC) * (BN / SGC);
+    const uint scol = sg * 16;
+    const uint wn = tid % 64, wh = tid / 64;  // decode: row, 16-wide k half
+    device const uchar* wrow = W + (n0 + wn) * kq;
+    device const float* srow = S + (n0 + wn) * ng;
     simdgroup_float8x8 acc[FR][FC];
     for (uint i = 0; i < FR; i++)
         for (uint j = 0; j < FC; j++) acc[i][j] = make_filled_simdgroup_matrix<float, 8, 8>(0.0f);
     for (uint k0 = kb; k0 < ke; k0 += BK) {
-        for (uint e = tid; e < BM * BK; e += NT) {
-            uint r = e / BK, c = e % BK, gm = m0 + r;
-            Xs[e] = T(gm < p.M ? X[gm * p.K + k0 + c] : 0.0f);
+        for (uint e = tid; e < BM * BK / 4; e += 128) {
+            uint r = (e * 4) / BK, c = (e * 4) % BK, gm = m0 + r;
+            float4 v = gm < p.M ? *(device const float4*)(X + gm * p.K + k0 + c) : float4(0.0f);
+            threadgroup T* d = Xs + r * BK + c;
+            d[0] = T(v.x); d[1] = T(v.y); d[2] = T(v.z); d[3] = T(v.w);
         }
-        for (uint e = tid; e < BN * (BK / 4); e += NT) {
-            uint n = e / (BK / 4), b = e % (BK / 4);
-            uchar q = W[(n0 + n) * kq + k0 / 4 + b];
-            T sc = T(S[(n0 + n) * ng + k0 / p.G]);
-            for (uint j = 0; j < 4; j++) Ws[(b * 4 + j) * BN + n] = (T((q >> (2 * j)) & 3) - T(1)) * sc;
+        if (wh < BK / 16) {
+            uint q = *(device const uint*)(wrow + k0 / 4 + wh * 4);
+            T sc = T(srow[k0 / p.G]);
+            for (uint j = 0; j < 16; j++) Ws[(wh * 16 + j) * BN + wn] = (T((q >> (2 * j)) & 3u) - T(1)) * sc;
         }
         threadgroup_barrier(mem_flags::mem_threadgroup);
         for (uint kk = 0; kk < BK; kk += 8) {
             simdgroup_matrix<T, 8, 8> a[FR], b[FC];
-            for (uint i = 0; i < FR; i++) simdgroup_load(a[i], Xs + (sr + i * 8) * BK + kk, BK);
+            for (uint i = 0; i < FR; i++) simdgroup_load(a[i], Xs + i * 8 * BK + kk, BK);
             for (uint j = 0; j < FC; j++) simdgroup_load(b[j], Ws + kk * BN + scol + j * 8, BN);
             for (uint i = 0; i < FR; i++)
                 for (uint j = 0; j < FC; j++) simdgroup_multiply_accumulate(acc[i][j], a[i], b[j], acc[i][j]);
@@ -72,25 +74,24 @@ kernel void tgemm_t(device const float* X [[buffer(0)]],
         threadgroup_barrier(mem_flags::mem_threadgroup);
     }
     for (uint i = 0; i < FR; i++)
-        for (uint j = 0; j < FC; j++) simdgroup_store(acc[i][j], Cs + (sr + i * 8) * BN + scol + j * 8, BN);
+        for (uint j = 0; j < FC; j++) simdgroup_store(acc[i][j], Cs + i * 8 * BN + scol + j * 8, BN);
     threadgroup_barrier(mem_flags::mem_threadgroup);
     const bool split = ntg.z > 1;
-    for (uint e = tid; e < BM * BN; e += NT) {
+    for (uint e = tid; e < BM * BN; e += 128) {
         uint r = e / BN, c = e % BN, gm = m0 + r;
         if (gm >= p.M) continue;
         if (split) P[(tg.z * p.M + gm) * p.N + n0 + c] = Cs[e];
         else tg_store(Y + gm * p.N + n0 + c, Cs[e], p.mode, p.alpha);
     }
 }
-
-#define TGEMM(NAME, T, BM, BN, BK, SGR, SGC)                                                              \
-    template [[host_name(NAME)]] kernel void tgemm_t<T, BM, BN, BK, SGR, SGC>(                              \
+// Tiles measured with tests/metal_bench.rs (16 rows up to 64 tokens, 32 above; K step 16). Lost: K step 32 or 8,
+// half staging, half partial sums, 64 × 64 / 32 × 128 tiles with 4 or 8 simdgroups, byte-wise strided decode.
+#define TGEMM(NAME, T, BM, BK)                                                                               \
+    template [[host_name(NAME)]] kernel void tgemm_t<T, BM, BK>(                                             \
         device const float*, device const uchar*, device const float*, device float*, constant TGemmP&,     \
         device float*, uint3, uint3, uint, uint);
-// The two tiles the encoder uses (16 × 64 up to 64 tokens, 32 × 64 above). Measured alternatives that lost:
-// K step 32 or 8, half staging, 64 × 64 and 32 × 128 tiles with 4 or 8 simdgroups (tests/metal_bench.rs).
-TGEMM("tgemm_f_16_64_16", float, 16, 64, 16, 1, 4)
-TGEMM("tgemm_f_32_64_16", float, 32, 64, 16, 1, 4)
+TGEMM("tgemm_16", float, 16, 16)
+TGEMM("tgemm_32", float, 32, 16)
 
 // Split-K reduction: Y[m, n] = epilogue(Σ_z P[z, m, n]).
 kernel void tgemm_reduce(device const float* P [[buffer(0)]],
@@ -296,4 +297,87 @@ kernel void glu_dwconv_silu(device const float* G [[buffer(0)]],
         acc = fma(w[kk * p.D + c], a / (1.0f + exp(-gate)), acc);
     }
     Out[i * p.D + c] = acc / (1.0f + exp(-acc));
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Subsampling (dw-striding Conv2d, 8× in time), channels-last [T, F, C] as on the CPU.
+struct SubP {
+    uint t_in, f_in;    // input grid of this stage
+    uint t_out, f_out;  // output grid
+    uint C, K, S, pad;
+};
+
+// conv0 (1 → C, k×k, stride S) + ReLU fused into the first depthwise conv (k×k, stride S): the conv0 outputs a
+// depthwise tap needs are recomputed on the fly, so the large conv0 activation is never stored.
+// feats [t0, f0] → Y [t_out, f_out, C]; `p.t_in, p.f_in` describe the conv0 output grid (t1, f1).
+kernel void sub_conv0_dw(device const float* feats [[buffer(0)]],
+                         device const float* w0 [[buffer(1)]],    // [k*k, C]
+                         device const float* b0 [[buffer(2)]],    // [C]
+                         device const float* wd [[buffer(3)]],    // [k*k, C]
+                         device const float* bd [[buffer(4)]],    // [C]
+                         device float* Y [[buffer(5)]],
+                         constant SubP& p [[buffer(6)]],
+                         constant uint2& in0 [[buffer(7)]],       // (t0, f0): the feature grid
+                         uint3 gid [[thread_position_in_grid]]) {
+    uint ch = gid.x, of = gid.y, ot = gid.z;
+    if (ch >= p.C || of >= p.f_out || ot >= p.t_out) return;
+    const int K = int(p.K), S = int(p.S), pad = int(p.pad);
+    float acc = bd[ch];
+    for (int kt = 0; kt < K; kt++) {
+        int it = int(ot) * S + kt - pad;  // conv0 output row
+        if (it < 0 || it >= int(p.t_in)) continue;
+        for (int kf = 0; kf < K; kf++) {
+            int jf = int(of) * S + kf - pad;  // conv0 output column
+            if (jf < 0 || jf >= int(p.f_in)) continue;
+            float v = b0[ch];
+            for (int ut = 0; ut < K; ut++) {
+                int xt = it * S + ut - pad;
+                if (xt < 0 || xt >= int(in0.x)) continue;
+                for (int uf = 0; uf < K; uf++) {
+                    int xf = jf * S + uf - pad;
+                    if (xf < 0 || xf >= int(in0.y)) continue;
+                    v = fma(w0[(ut * K + uf) * p.C + ch], feats[uint(xt) * in0.y + uint(xf)], v);
+                }
+            }
+            acc = fma(wd[(kt * K + kf) * p.C + ch], max(v, 0.0f), acc);
+        }
+    }
+    Y[(ot * p.f_out + of) * p.C + ch] = acc;
+}
+
+// Depthwise k×k stride-S conv (no activation): X [t_in, f_in, C] → Y [t_out, f_out, C].
+kernel void sub_dw(device const float* X [[buffer(0)]],
+                   device const float* w [[buffer(1)]],
+                   device const float* b [[buffer(2)]],
+                   device float* Y [[buffer(3)]],
+                   constant SubP& p [[buffer(4)]],
+                   uint3 gid [[thread_position_in_grid]]) {
+    uint ch = gid.x, of = gid.y, ot = gid.z;
+    if (ch >= p.C || of >= p.f_out || ot >= p.t_out) return;
+    const int K = int(p.K), S = int(p.S), pad = int(p.pad);
+    float acc = b[ch];
+    for (int kt = 0; kt < K; kt++) {
+        int it = int(ot) * S + kt - pad;
+        if (it < 0 || it >= int(p.t_in)) continue;
+        for (int kf = 0; kf < K; kf++) {
+            int i_f = int(of) * S + kf - pad;
+            if (i_f < 0 || i_f >= int(p.f_in)) continue;
+            acc = fma(w[(kt * K + kf) * p.C + ch], X[(uint(it) * p.f_in + uint(i_f)) * p.C + ch], acc);
+        }
+    }
+    Y[(ot * p.f_out + of) * p.C + ch] = acc;
+}
+
+// Y[r, c] = act(Y[r, c] + b[c]) over [rows, N]; act = ReLU when relu != 0.
+struct BiasP {
+    uint rows, N, relu;
+};
+kernel void bias_act(device float* Y [[buffer(0)]],
+                     device const float* b [[buffer(1)]],
+                     constant BiasP& p [[buffer(2)]],
+                     uint2 gid [[thread_position_in_grid]]) {
+    uint c = gid.x, r = gid.y;
+    if (c >= p.N || r >= p.rows) return;
+    float v = Y[r * p.N + c] + b[c];
+    Y[r * p.N + c] = p.relu ? max(v, 0.0f) : v;
 }

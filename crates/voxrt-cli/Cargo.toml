@@ -18,3 +18,4 @@ voxrt = { version = "0.1.0", path = "../voxrt" }
 anyhow = { workspace = true }
 serde_json = { workspace = true }
 rayon = { workspace = true }
+libc = "0.2"
