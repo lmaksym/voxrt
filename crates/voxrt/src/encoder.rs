@@ -802,6 +802,16 @@ impl Encoder {
         })
     }
 
+    /// Subsampling only (the layers run elsewhere, e.g. on the GPU); `forward` must not be called.
+    pub fn load_subsampling_only(m: &ModelFile, precision: Precision) -> Result<Self> {
+        Ok(Self {
+            subsampling: Subsampling::load(m)?,
+            layers: Vec::new(),
+            d: m.config.encoder_config.hidden_size,
+            precision,
+        })
+    }
+
     /// `feats` `[t, n_mels]` → `(encoder_out [t_e, d], t_e)`; `layer_outs` receives every layer output if given.
     pub fn forward(
         &self,

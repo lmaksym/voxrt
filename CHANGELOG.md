@@ -13,6 +13,9 @@
 - Python: `voxrt.Transcriber()` downloads the model into the Hugging Face cache on first use; FLAC/OGG/MP3 via
   `soundfile` (`voxrt[audio]`), other formats via ffmpeg; results as dataclasses (`Transcript`, `Segment`, `Word`);
   type hints; pytest suite in CI.
+- Apple GPU encoder (Metal, opt-in with `VOXRT_DEVICE=gpu`): ternary GEMMs with in-shader 2-bit decode, relative-
+  position attention, convolution module; ~2× throughput on an M4 Max (dev50 165×, test-clean 162× at WER 1.96);
+  CPU fallback where the GPU lacks simdgroup matrices.
 - macOS artefacts are universal (Apple Silicon + Intel Macs): CLI, C library, Python wheel (universal2), XCFramework.
 - Streaming equals offline also for streams up to 30 s that end before a segment is finalised (whole-clip path).
 - Benchmarks: 79× real time on LibriSpeech test-clean and 92× on TED-LIUM long-form on an M4 Max CPU, WER 1.95 / 2.55;

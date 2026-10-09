@@ -42,6 +42,13 @@ this machine for short clips (the GPU is idle otherwise and the per-utterance wo
 runtimes for long audio, where its per-step decoding dominates. Among CPU runtimes of the ternary model, voxrt and
 Photon are the only two at this speed; the open ONNX/GGUF runtimes of the teacher are 3–6× slower.
 
+## Results, Apple GPU, 2026-10-09 (same M4 Max)
+
+The encoder on the GPU (Metal, `VOXRT_DEVICE=gpu`), decoder on the CPU, measured back to back with the CPU path:
+dev50 165× (CPU 80×), test-clean 162× · WER 1.96 (CPU 79× · 1.95), TED-LIUM long-form 147× · WER 2.54 (CPU 82× ·
+2.56 in the same session). GPU encoder output equals the CPU f32 reference to ~2·10⁻⁶ relative
+(`tests/metal_encoder.rs`); the ternary GEMMs run at 6–7 TFLOP/s f32 on large inputs (`tests/metal_bench.rs`).
+
 ## Results, x86, 2026-10-08 (Google Cloud c4d-standard-16)
 
 Machine: AMD EPYC 9B45 (Turin, Zen 5), 8 cores / 16 threads, Ubuntu 24.04, rustc 1.99.0; voxrt with the AVX-512 VNNI

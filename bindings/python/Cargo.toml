@@ -10,6 +10,9 @@ description = "Python bindings for the Parakeet Redux runtime"
 name = "_voxrt"
 crate-type = ["cdylib"]
 
+[features]
+metal = ["voxrt/metal"]   # Apple GPU encoder (VOXRT_DEVICE=gpu)
+
 [dependencies]
 voxrt = { version = "0.1.0", path = "../../crates/voxrt" }
 pyo3 = { version = "0.23", features = ["extension-module", "abi3-py39"] }

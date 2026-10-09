@@ -22,5 +22,5 @@ Model = "https://huggingface.co/moondream/parakeet-redux"
 [tool.maturin]
 python-source = "python"
 module-name = "voxrt._voxrt"
-features = ["pyo3/extension-module"]
+features = ["pyo3/extension-module", "metal"]   # metal: Apple GPU encoder (no-op elsewhere)
 manifest-path = "Cargo.toml"

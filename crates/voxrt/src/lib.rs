@@ -8,6 +8,8 @@ pub mod format;
 pub mod frontend;
 pub mod kernels;
 pub mod longform;
+#[cfg(all(feature = "metal", target_vendor = "apple"))]
+pub mod metal;
 pub mod packed;
 pub mod subsampling;
 pub mod tensor;

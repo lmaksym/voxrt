@@ -22,6 +22,9 @@ pub struct Transcriber {
     /// Audio longer than this goes through VAD segmentation automatically.
     pub long_form_threshold_s: f64,
     pub segment_cfg: SegmentConfig,
+    /// Encoder layers on the Apple GPU (`VOXRT_DEVICE=gpu`, feature `metal`).
+    #[cfg(all(feature = "metal", target_vendor = "apple"))]
+    pub gpu: Option<crate::metal::GpuEncoder>,
 }
 
 #[derive(Debug, Clone)]
@@ -57,6 +60,25 @@ impl Transcriber {
             n_mels: m.config.encoder_config.num_mel_bins,
             ..MelConfig::default()
         });
+        #[cfg(all(feature = "metal", target_vendor = "apple"))]
+        let gpu = match std::env::var("VOXRT_DEVICE").as_deref() {
+            // GPUs without Apple's simdgroup matrix units (e.g. Intel Macs) cannot build the kernels: fall back to CPU
+            Ok("gpu") => match crate::metal::GpuEncoder::load(&m) {
+                Ok(g) => Some(g),
+                Err(e) => {
+                    eprintln!("voxrt: GPU unavailable ({e}); using the CPU");
+                    None
+                }
+            },
+            _ => None,
+        };
+        #[cfg(all(feature = "metal", target_vendor = "apple"))]
+        let encoder = if gpu.is_some() {
+            Encoder::load_subsampling_only(&m, precision)?
+        } else {
+            Encoder::load_with(&m, precision)?
+        };
+        #[cfg(not(all(feature = "metal", target_vendor = "apple")))]
         let encoder = Encoder::load_with(&m, precision)?;
         let decoder = Decoder::load(&m)?;
         let vad = VadHead::load(&m)?;
@@ -72,7 +94,30 @@ impl Transcriber {
             subsampling_factor: m.config.encoder_config.subsampling_factor,
             long_form_threshold_s: 30.0,
             segment_cfg: SegmentConfig::from_env(),
+            #[cfg(all(feature = "metal", target_vendor = "apple"))]
+            gpu,
         })
+    }
+
+    /// Encoder on the configured device: CPU layers, or subsampling on the CPU and the layers on the GPU.
+    pub fn encode(&self, feats: &[f32], t: usize) -> (Vec<f32>, usize) {
+        #[cfg(all(feature = "metal", target_vendor = "apple"))]
+        if let Some(g) = &self.gpu {
+            let te = self.encoder.subsampling.out_frames(t);
+            let t0 = std::time::Instant::now();
+            let x = self.encoder.subsampling.forward(feats, t);
+            let t1 = std::time::Instant::now();
+            let out = g.forward(&x, te);
+            if std::env::var_os("VOXRT_PROFILE").is_some() {
+                eprintln!(
+                    "gpu encoder (T_e={te}): subsampling {:.3}s · layers {:.3}s",
+                    (t1 - t0).as_secs_f64(),
+                    t1.elapsed().as_secs_f64()
+                );
+            }
+            return (out, te);
+        }
+        self.encoder.forward(feats, t, None, None)
     }
 
     /// Samples per encoder frame (hop × subsampling factor = 1280 → 80 ms).
@@ -106,7 +151,7 @@ impl Transcriber {
         let t0 = std::time::Instant::now();
         let (feats, t) = self.frontend.compute(samples);
         let t1 = std::time::Instant::now();
-        let (enc, te) = self.encoder.forward(&feats, t, None, None);
+        let (enc, te) = self.encode(&feats, t);
         let proj = self.decoder.project_encoder(&enc, te);
         if profiling {
             eprintln!(

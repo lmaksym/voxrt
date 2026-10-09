@@ -9,6 +9,10 @@ rust-version.workspace = true
 name = "voxrt"
 path = "src/main.rs"
 
+[features]
+default = ["metal"]
+metal = ["voxrt/metal"]   # Apple GPU encoder (VOXRT_DEVICE=gpu)
+
 [dependencies]
 voxrt = { version = "0.1.0", path = "../voxrt" }
 anyhow = { workspace = true }
