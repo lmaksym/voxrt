@@ -59,7 +59,7 @@ def build(T):
     m = ct.convert(prog, convert_to="mlprogram", minimum_deployment_target=ct.target.macOS15,
                    compute_precision=ct.precision.FLOAT16)
     # ternary weights × one scale per tensor in this synthetic model → 3 unique values: exact 2-bit palettes
-    cfg = cto.OptimizationConfig(global_config=cto.OpPalettizerConfig(mode="unique", nbits=2))
+    cfg = cto.OptimizationConfig(global_config=cto.OpPalettizerConfig(mode="unique"))
     return cto.palettize_weights(m, cfg)
 
 
@@ -67,7 +67,8 @@ def placement(path):
     try:
         from coremltools.models.compute_plan import MLComputePlan
         from coremltools.models.compute_device import MLNeuralEngineComputeDevice, MLGPUComputeDevice
-        plan = MLComputePlan.load_from_path(path, compute_units=ct.ComputeUnit.CPU_AND_NE)
+        compiled = ct.models.MLModel(path, compute_units=ct.ComputeUnit.CPU_AND_NE).get_compiled_model_path()
+        plan = MLComputePlan.load_from_path(compiled, compute_units=ct.ComputeUnit.CPU_AND_NE)
         counts = {"ane": 0, "gpu": 0, "cpu": 0}
         fn = plan.model_structure.program.functions["main"]
         for op in fn.block.operations:
