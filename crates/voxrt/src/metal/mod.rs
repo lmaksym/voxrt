@@ -125,6 +125,13 @@ impl Gpu {
     fn new() -> Result<Self> {
         let device =
             MTLCreateSystemDefaultDevice().ok_or_else(|| gpu_err("device", "no Metal device"))?;
+        // the kernels use simdgroup matrices: Apple-silicon GPUs (family Apple7, M1 / A14) and later
+        if !device.supportsFamily(objc2_metal::MTLGPUFamily::Apple7) {
+            return Err(gpu_err(
+                "device",
+                "GPU lacks simdgroup matrices (needs Apple silicon)",
+            ));
+        }
         let queue = device
             .newCommandQueue()
             .ok_or_else(|| gpu_err("queue", "newCommandQueue failed"))?;

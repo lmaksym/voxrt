@@ -22,7 +22,7 @@ distillation of NVIDIA's Parakeet-TDT 0.6B (25 languages, 178 MB) — with nativ
 
 - **Fast on ordinary CPUs** — 78× real time on an M4 Max, 104× on an AMD Turin server; faster than the model vendor's own runtime on both
 - **Native ternary kernels** — NEON `smmla` / `sdot` on Apple Silicon, AVX-512 VNNI / AVX2 on x86, picked at run time
-- **Apple GPU** — an optional Metal encoder doubles throughput on Apple Silicon (165× real time on an M4 Max) and frees the CPU
+- **Apple GPU by default** — on Apple Silicon the encoder runs on the GPU (Metal): 2.8× faster than on the CPU, 2× faster than Moondream's own GPU runtime, under one CPU core busy and ~8× less energy
 - **Same bits everywhere** — byte-identical transcripts on Apple Silicon and x86; every SIMD kernel equals its scalar reference
 - **Long audio built in** — the model's own VAD head segments talks and meetings; segment and word timestamps, SRT and JSON
 - **Streaming** — push audio as it arrives; the output equals the offline transcript
@@ -41,15 +41,27 @@ scored with the leaderboard-exact scorer. One number per runtime, measured back 
 
 **Apple M4 Max** (14 cores, macOS 26)
 
-| Workload | voxrt CPU | voxrt GPU (Metal) | Photon CPU (Moondream) |
-|---|---|---|---|
-| LibriSpeech test-clean, 2,620 utterances | **79× · WER 1.95** | **162× · WER 1.96** | 51×\* · WER 1.96 |
-| dev50, 50 short clips | **78×** · WER 1.68 | **165×** | 70× · WER 1.68 |
-| one 27 s utterance | **0.26 s (104×)** | **0.15 s (173×)** | 0.37 s (72×) |
-| TED-LIUM 3 long-form, 148 min | **92× · WER 2.55** | **147× · WER 2.54** | 65× · WER 2.52 |
+| Workload | voxrt GPU (default) | voxrt CPU | Photon GPU | Photon CPU |
+|---|---|---|---|---|
+| dev50, 50 short clips | **202×** · WER 1.78 | 72× · WER 1.68 | 100× · WER 1.78 | 71× · WER 1.68 |
+| LibriSpeech test-clean, 2,620 utterances | **197× · WER 1.96** | 79× · WER 1.95 | — | 51×\* · WER 1.96 |
+| one 27 s utterance | **0.11 s (250×)** | 0.26 s (104×) | — | 0.37 s (72×) |
+| TED-LIUM 3 long-form, 148 min | **174× · WER 2.54** | 92× · WER 2.55 | — | 65× · WER 2.52 |
 
-*Photon `moondream` 2.6.1, sherpa-onnx 1.13.8, onnx-asr 0.12.0, parakeet.cpp `2de154c`. \* Photon's test-clean pass ran on a loaded machine; its dev50 number is the clean one. The GPU column runs the encoder on the
-M4 Max GPU (`VOXRT_DEVICE=gpu`), the decoder on the CPU.*
+**What a Mac app pays per transcription** (same M4 Max, from `bench/prod_bench.py`)
+
+| | voxrt GPU | voxrt CPU |
+|---|---|---|
+| 2 s clip, first call / warm | 18 / 17.5 ms | 45 / 43 ms |
+| 10 s clip | 43 ms | 114 ms |
+| CPU cores busy while transcribing | 0.6–0.9 | ~10 |
+| macOS energy impact per audio-minute (sustained) | **75** | 586 |
+| peak memory, 5 s / 60 s clip | 0.46 / 0.81 GB | 0.30 / 0.78 GB |
+
+*Photon `moondream` 2.6.1, sherpa-onnx 1.13.8, onnx-asr 0.12.0, parakeet.cpp `2de154c`. \* Photon's test-clean pass ran on a
+loaded machine; its dev50 number is the clean one. voxrt GPU runs the encoder on the M4 Max GPU and the decoder on the
+CPU; its WER follows the f32 reference path (dev50 is 50 utterances: 1.78 vs 1.68 is a handful of words).
+Energy impact is macOS's relative score (Activity Monitor), not watts.*
 
 **AMD EPYC 9B45 Turin** (Google Cloud `c4d-standard-16`: 8 cores / 16 threads, Ubuntu 24.04)
 
@@ -59,8 +71,9 @@ M4 Max GPU (`VOXRT_DEVICE=gpu`), the decoder on the CPU.*
 | dev50, 50 short clips | **104×** · WER 1.68 | 98× · WER 1.68 | 42× · WER 1.18 |
 
 *voxrt's test-clean output on this machine is byte-identical to the Mac run (2,620 / 2,620). † runs the 0.6B teacher model,
-so its WER is not comparable. For GPU, [parakeet-mlx](https://github.com/senstella/parakeet-mlx) runs the teacher on the
-Apple GPU at 357× on short clips.* Method, versions and all runs: [`bench/README.md`](bench/README.md).
+so its WER is not comparable. On Apple GPUs [parakeet-mlx](https://github.com/senstella/parakeet-mlx) runs the teacher
+model at 367× on dev50 (MLX, bf16) — the fastest thing on short clips today.* Method, versions and all runs:
+[`bench/README.md`](bench/README.md).
 
 ## Quick start
 
@@ -117,15 +130,18 @@ voxrt transcribe talk.wav --threads 4 --precision f32       # thread count; exac
 
 Set `VOXRT_MODEL_DIR` (or pass `--model`) to point at the model directory.
 
-### Apple GPU
+### Device
+
+On Apple Silicon the encoder runs on the GPU (Metal) by default; elsewhere, and on Intel Macs, on the CPU.
 
 ```sh
-VOXRT_DEVICE=gpu voxrt transcribe talk.wav    # encoder on the GPU (Metal), decoder on the CPU
+voxrt transcribe talk.wav                     # auto: GPU on Apple Silicon
+VOXRT_DEVICE=cpu voxrt transcribe talk.wav    # the CPU path (byte-identical across Apple Silicon and x86)
 ```
 
-The same switch works from Python, Swift and C (it is read when the model loads). On Apple Silicon this roughly doubles
-throughput and leaves the CPU cores free; Macs without Apple-silicon GPUs fall back to the CPU with a warning. GPU
-transcripts match the f32 reference path (WER 1.96 on test-clean) but are not byte-identical to the CPU int8 path.
+Python takes `voxrt.Transcriber(device="auto" | "gpu" | "cpu")` and reports `t.device`; Swift and C read
+`VOXRT_DEVICE` when the model loads. GPU transcripts follow the f32 reference path (WER 1.96 on test-clean) and are not
+byte-identical to the int8 CPU path.
 
 ### Python
 
@@ -198,7 +214,7 @@ Errors return `NULL`; `voxrt_last_error()` describes them. Streaming: `voxrt_str
 - [x] iOS / iPadOS — XCFramework
 - [x] Linux x86-64
 - [ ] Linux arm64, Windows — planned
-- [x] Apple GPU (Metal) — encoder on Apple-silicon GPUs, opt-in (`VOXRT_DEVICE=gpu`)
+- [x] Apple GPU (Metal) — encoder and subsampling on Apple-silicon GPUs, the default there
 
 ## How it works
 
@@ -209,9 +225,9 @@ Errors return `NULL`; `voxrt_last_error()` describes them. Streaming: `voxrt_str
 - **Decoder.** TDT greedy decoding with NeMo's semantics; int8 joint head and LSTM on a dedicated single-token GEMV.
 - **Long-form.** The model's VAD head cuts audio at pauses into 10–60 s segments; the encoder (all cores) overlaps with
   the decoder (one core). Streaming feeds the same segment automaton as offline transcription.
-- **GPU.** On Apple Silicon the 24 encoder layers can run as Metal compute kernels: ternary weights stay 2-bit on the
-  GPU and are decoded inside the GEMM (simdgroup matrix tiles, split-K for short inputs); subsampling, VAD and the
-  decoder stay on the CPU.
+- **GPU.** On Apple Silicon the subsampling and the 24 encoder layers run as Metal compute kernels in one command
+  buffer: ternary weights stay 2-bit on the GPU and are decoded inside the GEMM (simdgroup matrix tiles, split-K for the
+  wide projections); the decoder stays on the CPU.
 - **Accuracy.** The fp32 path is token-identical to the Python reference on all of LibriSpeech test-clean (WER 1.96, the
   model card's number). int8 scores 1.95; the transcripts that differ from fp32 are near-ties the int8 path gets
   right as often as fp32.
@@ -223,7 +239,7 @@ Errors return `NULL`; `voxrt_last_error()` describes them. Streaming: `voxrt_str
 - **Evaluation** is English so far (LibriSpeech, TED-LIUM); the model covers 25 languages and voxrt decodes them, but
   they have not been scored.
 - **Streaming latency.** The first segment arrives once the following pause is known (≥ 10 s of speech).
-- **Memory.** ~0.45 GB on short clips, ~1.6 GB peak on a 20-minute talk.
+- **Memory.** ~0.3 GB (CPU) / 0.46 GB (GPU) on short clips, ~0.8 GB on a 60 s segment, more on long talks.
 - **Intel CPUs** use the same AVX2 / AVX-512 kernels but have not been benchmarked; 256-bit AVX-VNNI (Intel 12th gen
   and later) is not used yet.
 - **GPU mode** is f32 and agrees with the f32 reference, so its transcripts differ from the default int8 CPU path in a

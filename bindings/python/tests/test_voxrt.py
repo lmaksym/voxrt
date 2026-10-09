@@ -117,3 +117,13 @@ def test_unknown_format_error(t, tmp_path):
     bad.write_bytes(b"not audio")
     with pytest.raises(RuntimeError):
         t.transcribe(bad)
+
+
+def test_devices_agree(t):
+    """cpu and gpu (where available) both transcribe the clip; `device` reports what actually runs."""
+    cpu = voxrt.Transcriber(t.model_dir, device="cpu")
+    assert cpu.device == "cpu" and norm(cpu.transcribe(CLIP).text) == REF
+    gpu = voxrt.Transcriber(t.model_dir, device="gpu")  # falls back to cpu without an Apple-silicon GPU
+    assert gpu.device in ("gpu", "cpu") and norm(gpu.transcribe(CLIP).text) == REF
+    with pytest.raises(ValueError):
+        voxrt.Transcriber(t.model_dir, device="tpu")

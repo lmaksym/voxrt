@@ -69,17 +69,32 @@ class Transcriber:
 
     `model` is a local model directory or a Hugging Face repo id; when omitted, `VOXRT_MODEL_DIR` is used if set,
     otherwise `moondream/parakeet-redux` is downloaded into the Hugging Face cache (≈ 180 MB, once).
-    One instance can serve several threads (the GIL is released while transcribing).
+    `device`: "auto" (default; the Apple GPU when available), "gpu" or "cpu" (the byte-identical cross-platform
+    path); `VOXRT_DEVICE` sets the default. One instance can serve several threads (the GIL is released while
+    transcribing).
     """
 
-    def __init__(self, model: Optional[Union[str, "os.PathLike[str]"]] = None, *, revision: Optional[str] = None):
+    def __init__(
+        self,
+        model: Optional[Union[str, "os.PathLike[str]"]] = None,
+        *,
+        revision: Optional[str] = None,
+        device: Optional[str] = None,
+    ):
         self.model_dir: str = resolve_model(model, revision=revision)
-        self._t = _voxrt.Transcriber(self.model_dir)
+        self._t = _voxrt.Transcriber(self.model_dir, device)
+
+    @property
+    def device(self) -> str:
+        """Where the encoder runs: "gpu" (Apple silicon, Metal) or "cpu"."""
+        return self._t.device
 
     @classmethod
-    def from_pretrained(cls, repo_id: str = DEFAULT_REPO, *, revision: Optional[str] = None) -> "Transcriber":
+    def from_pretrained(
+        cls, repo_id: str = DEFAULT_REPO, *, revision: Optional[str] = None, device: Optional[str] = None
+    ) -> "Transcriber":
         """Load from a Hugging Face repo (downloaded into the HF cache on first use)."""
-        return cls(repo_id, revision=revision)
+        return cls(repo_id, revision=revision, device=device)
 
     def transcribe(self, audio: AudioInput, sample_rate: int = 16000) -> Transcript:
         """Transcribe a file path or an array of samples at `sample_rate`. Long audio is segmented automatically.
@@ -105,7 +120,7 @@ class Transcriber:
         return Transcript(text=r.text, segments=[_segment(d) for d in r.segments], duration=r.duration)
 
     def __repr__(self) -> str:
-        return f"Transcriber({self.model_dir!r})"
+        return f"Transcriber({self.model_dir!r}, device={self.device!r})"
 
 
 class Stream:

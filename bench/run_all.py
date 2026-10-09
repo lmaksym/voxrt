@@ -1,6 +1,6 @@
 """Same-machine, same-audio benchmark of Parakeet runtimes.
 One utterance at a time, model loaded once per runtime, 2 warm-up utterances, wall clock per utterance.
-usage: bench/.venv/bin/python bench/run_all.py [--set dev50] [--runtimes voxrt-int8,voxrt-f32,sherpa,onnx-asr,parakeet.cpp,parakeet-mlx,photon-cpu,photon-mps]"""
+usage: bench/.venv/bin/python bench/run_all.py [--set dev50] [--runtimes voxrt-int8,voxrt-gpu,voxrt-f32,sherpa,onnx-asr,parakeet.cpp,parakeet-mlx,photon-cpu,photon-mps]"""
 import argparse, json, os, re, statistics, subprocess, sys, time
 from pathlib import Path
 
@@ -13,13 +13,13 @@ def manifest(name):
 def wav_of(r):
     return str((ROOT / r["audio"]).with_suffix(".wav"))
 
-def run_voxrt(rows, precision):
+def run_voxrt(rows, precision, device="cpu"):
     exe = ROOT / "target/release/voxrt"
-    out = ROOT / f"results/bench_voxrt-{precision}.jsonl"
+    out = ROOT / f"results/bench_voxrt-{precision}-{device}.jsonl"
     out.unlink(missing_ok=True)
     tmp = ROOT / "data/manifests/_bench.jsonl"  # voxrt batch resolves audio relative to <root>/data/manifests
     tmp.write_text("".join(json.dumps(r) + "\n" for r in rows))
-    env = dict(os.environ, VOXRT_PRECISION=precision)
+    env = dict(os.environ, VOXRT_PRECISION=precision, VOXRT_DEVICE=device)
     # warm-up
     subprocess.run([exe, "transcribe", wav_of(rows[0]), "--precision", precision], capture_output=True, env=env)
     t0 = time.time()
@@ -123,6 +123,7 @@ def main():
         try:
             if rt == "voxrt-int8": out, wall, note = run_voxrt(rows, "int8")
             elif rt == "voxrt-f32": out, wall, note = run_voxrt(rows, "f32")
+            elif rt == "voxrt-gpu": out, wall, note = run_voxrt(rows, "int8", "gpu")
             elif rt == "sherpa": out, wall, note = run_sherpa(rows)
             elif rt == "onnx-asr": out, wall, note = run_onnx_asr(rows)
             elif rt == "parakeet.cpp": out, wall, note = run_parakeet_cpp_bench(rows)

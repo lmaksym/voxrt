@@ -10,6 +10,26 @@ use crate::tokenizer::Tokenizer;
 use crate::vad::{SegmentConfig, VadHead};
 use crate::Result;
 
+/// Where the encoder runs. `Auto` (the default) uses an Apple-silicon GPU when the build has the `metal` feature and
+/// the int8 precision is selected, and the CPU otherwise; `Cpu` is the byte-identical cross-platform path.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Device {
+    Auto,
+    Cpu,
+    Gpu,
+}
+
+impl Device {
+    /// `VOXRT_DEVICE=cpu|gpu|auto` (default auto).
+    pub fn from_env() -> Self {
+        match std::env::var("VOXRT_DEVICE").as_deref() {
+            Ok("cpu") => Device::Cpu,
+            Ok("gpu") => Device::Gpu,
+            _ => Device::Auto,
+        }
+    }
+}
+
 pub struct Transcriber {
     pub frontend: Frontend,
     pub encoder: Encoder,
@@ -55,26 +75,37 @@ impl Transcriber {
     }
 
     pub fn load_with(dir: impl AsRef<Path>, precision: Precision) -> Result<Self> {
+        Self::load_on(dir, precision, Device::from_env())
+    }
+
+    /// Load for an explicit device (`Device::Gpu` warns and falls back to the CPU when no suitable GPU exists).
+    pub fn load_on(dir: impl AsRef<Path>, precision: Precision, device: Device) -> Result<Self> {
         let m = ModelFile::open(&dir)?;
         let frontend = Frontend::new(MelConfig {
             n_mels: m.config.encoder_config.num_mel_bins,
             ..MelConfig::default()
         });
+        // the f32 reference precision always runs on the CPU
         #[cfg(all(feature = "metal", target_vendor = "apple"))]
-        let gpu = match std::env::var("VOXRT_DEVICE").as_deref() {
-            // GPUs without Apple's simdgroup matrix units (e.g. Intel Macs) cannot build the kernels: fall back to CPU
-            Ok("gpu") => match crate::metal::GpuEncoder::load(&m) {
+        let gpu = match (device, precision) {
+            (Device::Cpu, _) | (_, Precision::F32) => None,
+            (d, Precision::Int8) => match crate::metal::GpuEncoder::load(&m) {
                 Ok(g) => {
                     g.warm_up(64);
                     Some(g)
                 }
                 Err(e) => {
-                    eprintln!("voxrt: GPU unavailable ({e}); using the CPU");
+                    if d == Device::Gpu {
+                        eprintln!("voxrt: GPU unavailable ({e}); using the CPU");
+                    }
                     None
                 }
             },
-            _ => None,
         };
+        #[cfg(not(all(feature = "metal", target_vendor = "apple")))]
+        if device == Device::Gpu {
+            eprintln!("voxrt: built without GPU support (feature `metal`, Apple platforms); using the CPU");
+        }
         #[cfg(all(feature = "metal", target_vendor = "apple"))]
         let encoder = if gpu.is_some() {
             Encoder::load_subsampling_only(&m, precision)?
@@ -126,6 +157,15 @@ impl Transcriber {
             return (out, te);
         }
         self.encoder.forward(feats, t, None, None)
+    }
+
+    /// The device the encoder runs on: `"gpu"` or `"cpu"`.
+    pub fn device(&self) -> &'static str {
+        #[cfg(all(feature = "metal", target_vendor = "apple"))]
+        if self.gpu.is_some() {
+            return "gpu";
+        }
+        "cpu"
     }
 
     /// Samples per encoder frame (hop × subsampling factor = 1280 → 80 ms).

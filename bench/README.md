@@ -44,10 +44,22 @@ Photon are the only two at this speed; the open ONNX/GGUF runtimes of the teache
 
 ## Results, Apple GPU, 2026-10-09 (same M4 Max)
 
-The encoder on the GPU (Metal, `VOXRT_DEVICE=gpu`), decoder on the CPU, measured back to back with the CPU path:
-dev50 165× (CPU 80×), test-clean 162× · WER 1.96 (CPU 79× · 1.95), TED-LIUM long-form 147× · WER 2.54 (CPU 82× ·
-2.56 in the same session). GPU encoder output equals the CPU f32 reference to ~2·10⁻⁶ relative
-(`tests/metal_encoder.rs`); the ternary GEMMs run at 6–7 TFLOP/s f32 on large inputs (`tests/metal_bench.rs`).
+Encoder (subsampling + 24 layers) on the GPU via Metal, decoder on the CPU; the default on Apple Silicon. Back to back
+with `run_all.py --runtimes voxrt-int8,voxrt-gpu,photon-cpu,photon-mps,parakeet-mlx` (dev50):
+
+| runtime | × real time | WER % dev50 |
+|---|---|---|
+| **voxrt GPU** | **202** | 1.78 |
+| Photon GPU (`mps`) | 100 | 1.78 |
+| voxrt CPU | 72 | 1.68 |
+| Photon CPU | 71 | 1.68 |
+| parakeet-mlx (teacher, bf16) | 367 | 1.48 |
+
+test-clean 197× · WER 1.96 (CPU 79× · 1.95); TED-LIUM long-form 174× · WER 2.54. GPU encoder output equals the CPU f32
+reference to ~2·10⁻⁶ relative (`tests/metal_encoder.rs`); ternary GEMMs reach 8–9 TFLOP/s f32 on long inputs
+(`tests/metal_bench.rs`; MLX's tuned 2-bit kernel reaches ~10 on the same GPU). Production view (`prod_bench.py`):
+2 s clip 17.5 ms warm and on the first call, 0.6–0.9 CPU cores busy (CPU path ~10), energy impact per audio-minute
+75 vs 586.
 
 ## Results, x86, 2026-10-08 (Google Cloud c4d-standard-16)
 

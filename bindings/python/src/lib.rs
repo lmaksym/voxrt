@@ -4,7 +4,7 @@ use pyo3::prelude::*;
 use pyo3::types::PyDict;
 
 use voxrt::longform::LongForm;
-use voxrt::transcriber::{Segment, Transcriber};
+use voxrt::transcriber::{Device, Segment, Transcriber};
 
 fn err(e: impl std::fmt::Display) -> PyErr {
     PyRuntimeError::new_err(e.to_string())
@@ -98,13 +98,29 @@ pub struct PyTranscriber {
 #[pymethods]
 impl PyTranscriber {
     #[new]
-    #[pyo3(signature = (model_dir=None))]
-    fn new(py: Python<'_>, model_dir: Option<String>) -> PyResult<Self> {
+    #[pyo3(signature = (model_dir=None, device=None))]
+    fn new(py: Python<'_>, model_dir: Option<String>, device: Option<String>) -> PyResult<Self> {
         let dir = model_dir
             .map(std::path::PathBuf::from)
             .unwrap_or_else(voxrt::format::default_model_dir);
-        let inner = py.allow_threads(|| Transcriber::load(&dir)).map_err(err)?;
+        let device = match device.as_deref() {
+            None => Device::from_env(),
+            Some("auto") => Device::Auto,
+            Some("cpu") => Device::Cpu,
+            Some("gpu") => Device::Gpu,
+            Some(other) => return Err(PyValueError::new_err(format!("device must be auto, cpu or gpu, not {other:?}"))),
+        };
+        let precision = voxrt::ternary_linear::Precision::from_env();
+        let inner = py
+            .allow_threads(|| Transcriber::load_on(&dir, precision, device))
+            .map_err(err)?;
         Ok(Self { inner })
+    }
+
+    /// Where the encoder runs: "gpu" or "cpu".
+    #[getter]
+    fn device(&self) -> &'static str {
+        self.inner.device()
     }
 
     /// Transcribe a WAV path or an array of mono samples (`sample_rate` for arrays; resampled to 16 kHz).
@@ -139,7 +155,7 @@ impl PyTranscriber {
     }
 
     fn __repr__(&self) -> String {
-        format!("Transcriber(frame={:.2}s)", self.inner.frame_seconds)
+        format!("Transcriber(device={})", self.inner.device())
     }
 }
 

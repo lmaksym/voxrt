@@ -29,6 +29,7 @@ AUDIO
 
 ENVIRONMENT
   VOXRT_MODEL_DIR, RAYON_NUM_THREADS, VOXRT_VAD_MIN / VOXRT_VAD_MAX (segment length bounds in 80 ms frames),
+  VOXRT_DEVICE=auto|gpu|cpu (encoder on the Apple GPU when available; cpu = byte-identical path),
   VOXRT_PROFILE=1 (stage timings on stderr)
 ";
 
@@ -188,7 +189,7 @@ fn main() -> anyhow::Result<()> {
             if quiet {
                 return Ok(());
             }
-            eprintln!("{:?}/{:?} · load {load:.2}s · {:.2}s audio in {secs:.3}s ({:.1}× real time) · {} frames · {} tokens · {} segments", tr.encoder.precision, voxrt::kernels::kernel(), a.samples.len() as f32 / 16000.0, a.samples.len() as f32 / 16000.0 / secs, r.n_frames, r.emissions.len(), r.segments.len());
+            eprintln!("{} · {:?}/{:?} · load {load:.2}s · {:.2}s audio in {secs:.3}s ({:.1}× real time) · {} frames · {} tokens · {} segments", tr.device(), tr.encoder.precision, voxrt::kernels::kernel(), a.samples.len() as f32 / 16000.0, a.samples.len() as f32 / 16000.0 / secs, r.n_frames, r.emissions.len(), r.segments.len());
         }
         Some("batch") => {
             let (manifest, out) = (
@@ -270,7 +271,7 @@ fn main() -> anyhow::Result<()> {
             let tr = Transcriber::load_with(model_dir(&args), precision(&args))?;
             let load_ms = t0.elapsed().as_secs_f64() * 1e3;
             let audio = voxrt::audio::read_wav(file)?.samples;
-            let device = std::env::var("VOXRT_DEVICE").unwrap_or_else(|_| "cpu".into());
+            let device = tr.device();
             for &s in &secs {
                 let n = ((s * 16_000.0) as usize).min(audio.len());
                 let clip = &audio[..n];
