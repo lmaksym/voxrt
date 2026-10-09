@@ -108,7 +108,11 @@ impl PyTranscriber {
             Some("auto") => Device::Auto,
             Some("cpu") => Device::Cpu,
             Some("gpu") => Device::Gpu,
-            Some(other) => return Err(PyValueError::new_err(format!("device must be auto, cpu or gpu, not {other:?}"))),
+            Some(other) => {
+                return Err(PyValueError::new_err(format!(
+                    "device must be auto, cpu or gpu, not {other:?}"
+                )))
+            }
         };
         let precision = voxrt::ternary_linear::Precision::from_env();
         let inner = py

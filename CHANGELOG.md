@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.1.0 — unreleased (target: first public release)
+## 0.1.0 — 2026-10-09
 - Rust engine for `moondream/parakeet-redux`: NeMo-exact log-mel frontend, FastConformer encoder, TDT greedy decoder
   with NeMo semantics, tokenizer; fp32 path token-identical to the Python reference on LibriSpeech test-clean.
 - Native ternary kernels: NEON I8MM (`smmla`) and SDOT tiles, 2-bit packed weights, int8 per-group activations,
