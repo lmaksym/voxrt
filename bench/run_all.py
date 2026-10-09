@@ -1,6 +1,6 @@
 """Same-machine, same-audio benchmark of Parakeet runtimes.
 One utterance at a time, model loaded once per runtime, 2 warm-up utterances, wall clock per utterance.
-usage: bench/.venv/bin/python bench/run_all.py [--set dev50] [--runtimes voxrt-int8,voxrt-gpu,voxrt-ane,voxrt-f32,sherpa,onnx-asr,parakeet.cpp,parakeet-mlx,photon-cpu,photon-mps]"""
+usage: bench/.venv/bin/python bench/run_all.py [--set dev50] [--runtimes voxrt-int8,voxrt-gpu,voxrt-ane,voxrt-f32,sherpa,onnx-asr,parakeet.cpp,parakeet-mlx,photon-cpu,photon-mps,fluid-redux-ane,fluid-redux-gpu,fluid-v3-ane,fluid-v3-gpu]"""
 import argparse, json, os, re, statistics, subprocess, sys, time
 from pathlib import Path
 
@@ -95,6 +95,21 @@ def run_photon(rows, device):
     m = re.search(r"processing only: ([0-9.]+)x", p.stdout or "")
     return out, float(m.group(1)) if m else float("nan"), "driver-reported processing time, model load excluded"
 
+def run_fluid(rows, version, units):
+    """FluidAudio (Core ML; Swift driver in bench/fluid_driver, library cloned into bench/FluidAudio): `redux` is
+    FluidInference/parakeet-redux-coreml (the same ternary model), `v3` the 6-bit teacher; encoder on the Neural
+    Engine (`ane`, the library default) or the GPU. Model loaded once, file → text timed per utterance."""
+    exe = ROOT / "bench/fluid_driver/.build/release/fluid_driver"
+    tmp = ROOT / "results/_fluid_manifest.jsonl"
+    tmp.write_text("".join(json.dumps({"id": r["id"], "wav": wav_of(r), "seconds": r["seconds"]}) + "\n" for r in rows))
+    out = ROOT / f"results/bench_fluid-{version}-{units}.jsonl"
+    p = subprocess.run([exe, str(tmp), str(out), version, units], capture_output=True, text=True)
+    tmp.unlink()
+    if p.returncode != 0:
+        raise RuntimeError((p.stderr.strip() or p.stdout.strip()).splitlines()[-1])
+    m = re.search(r"processing only: ([0-9.]+)x", p.stdout or "")
+    return out, float(m.group(1)) if m else float("nan"), "driver-reported processing time, model load excluded"
+
 def run_parakeet_mlx(rows):
     """parakeet-mlx (Apple GPU via MLX), teacher parakeet-tdt-0.6b-v3 in bf16, greedy; model loaded once."""
     from parakeet_mlx import from_pretrained
@@ -133,6 +148,7 @@ def main():
             elif rt == "photon-mps": out, wall, note = run_photon(rows, "mps")
             elif rt == "parakeet.cpp-cli": out, wall, note = run_parakeet_cpp(rows)
             elif rt == "parakeet-mlx": out, wall, note = run_parakeet_mlx(rows)
+            elif rt.startswith("fluid-"): out, wall, note = run_fluid(rows, *rt.split("-")[1:3])
             else: print("unknown", rt); continue
             w = score(out, ROOT / f"data/manifests/{a.set}.jsonl", quiet=True) if out else float("nan")
             print(f"{rt:20s} {wall:12.1f} {100*w:7.2f}  {note}")

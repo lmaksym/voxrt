@@ -29,6 +29,7 @@ golden/vad/
 bench/.venv/
 bench/models/
 bench/parakeet.cpp/
+bench/FluidAudio/
 
 # built bindings
 bindings/swift/CVoxrt.xcframework/
@@ -38,3 +39,4 @@ dist/
 
 # small test clip for the Python bindings (CC BY 4.0, see its ATTRIBUTION.md)
 !bindings/python/tests/audio/*.flac
+bench/fluid_driver/.build/

@@ -73,7 +73,9 @@ Energy impact is macOS's relative score (Activity Monitor), not watts.*
 *voxrt's test-clean output on this machine is byte-identical to the Mac run (2,620 / 2,620). † runs the 0.6B teacher model,
 so its WER is not comparable. On the M4 Max, [parakeet-mlx](https://github.com/senstella/parakeet-mlx) runs the teacher
 model at 60× on dev50 (MLX, bf16; 95× timed from decoded samples) and sherpa-onnx at 30×; an earlier version of this
-page listed parakeet-mlx at 367× because of a timing bug in our harness, fixed in `bench/run_all.py`.* Method, versions and all runs:
+page listed parakeet-mlx at 367× because of a timing bug in our harness, fixed in `bench/run_all.py`. [FluidAudio](https://github.com/FluidInference/FluidAudio)
+(Core ML) runs the same ternary model at 94× on dev50 on the Neural Engine (111× on the GPU) and the 6-bit teacher at
+141×; voxrt is at 213× / 201× in the same session.* Method, versions and all runs:
 [`bench/README.md`](bench/README.md).
 
 ## Quick start

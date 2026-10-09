@@ -74,6 +74,38 @@ reference to ~2·10⁻⁶ relative (`tests/metal_encoder.rs`); ternary GEMMs rea
 2 s clip 17.5 ms warm and on the first call, 0.6–0.9 CPU cores busy (CPU path ~10), energy impact per audio-minute
 75 vs 586.
 
+## Results, FluidAudio, 2026-10-09 (same M4 Max)
+
+[FluidAudio](https://github.com/FluidInference/FluidAudio) (`0b0fa2a`, Swift, Core ML) is the runtime most Mac
+dictation and meeting apps use for Parakeet. It ships a Core ML build of the same ternary model
+(`FluidInference/parakeet-redux-coreml`, exact 2-bit weights) and of the 6-bit teacher (`v3`), encoder on the Neural
+Engine by default or on the GPU. Driven by `bench/fluid_driver` (model loaded once, two warm-up files, each file timed
+from URL to text, as for the other runtimes); `run_all.py --runtimes voxrt-ane,voxrt-gpu,fluid-v3-ane,fluid-v3-gpu,fluid-redux-ane,fluid-redux-gpu`,
+back to back:
+
+| runtime | model | × real time dev50 | WER % dev50 | × real time test-clean | WER % test-clean |
+|---|---|---|---|---|---|
+| **voxrt Neural Engine + GPU** | parakeet-redux | **213** | 1.78 | **210** | 1.95 |
+| **voxrt GPU** | parakeet-redux | **201** | 1.78 | **201** | 1.96 |
+| FluidAudio v3, Neural Engine | teacher, 6-bit | 141 | 1.68 | 138 | 1.63 |
+| FluidAudio v3, GPU | teacher, 6-bit | 124 | 1.58 | — | — |
+| FluidAudio redux, GPU | parakeet-redux | 111 | 1.88 | — | — |
+| FluidAudio redux, Neural Engine | parakeet-redux | 94 | 1.88 | 92 | 2.00 |
+
+Median time per clip (test-clean for the Neural Engine rows, dev50 for the GPU rows) vs voxrt's `prod_bench.py`:
+
+| clip length | voxrt (Neural Engine + GPU) | FluidAudio v3, ANE | FluidAudio redux, ANE | FluidAudio redux, GPU |
+|---|---|---|---|---|
+| < 4 s | 17 ms (2 s clip) | 39 ms | 62 ms | 51 ms |
+| 4–8 s | 22 ms (5 s clip) | 46 ms | 71 ms | 61 ms |
+| 8–15 s | 33–37 ms (10 s clip) | 59 ms | 84 ms | 74 ms |
+| > 15 s | 107 ms (27 s clip) | 112 ms | 159 ms | 131 ms |
+
+FluidAudio runs the encoder on a fixed 15 s window, so a 2 s clip costs about as much as a 15 s one; voxrt sizes the
+work to the audio (length buckets on the Neural Engine, exact lengths on the GPU), which is where most of the gap on
+short clips comes from. Its Neural Engine build of parakeet-redux compiles for 5–25 minutes on first load (cached
+after). The teacher runtimes score a different model, so compare those rows on speed only.
+
 ## Results, x86, 2026-10-08 (Google Cloud c4d-standard-16)
 
 Machine: AMD EPYC 9B45 (Turin, Zen 5), 8 cores / 16 threads, Ubuntu 24.04, rustc 1.99.0; voxrt with the AVX-512 VNNI
