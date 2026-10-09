@@ -1,6 +1,6 @@
 """Same-machine, same-audio benchmark of Parakeet runtimes.
 One utterance at a time, model loaded once per runtime, 2 warm-up utterances, wall clock per utterance.
-usage: bench/.venv/bin/python bench/run_all.py [--set dev50] [--runtimes voxrt-int8,voxrt-gpu,voxrt-f32,sherpa,onnx-asr,parakeet.cpp,parakeet-mlx,photon-cpu,photon-mps]"""
+usage: bench/.venv/bin/python bench/run_all.py [--set dev50] [--runtimes voxrt-int8,voxrt-gpu,voxrt-ane,voxrt-f32,sherpa,onnx-asr,parakeet.cpp,parakeet-mlx,photon-cpu,photon-mps]"""
 import argparse, json, os, re, statistics, subprocess, sys, time
 from pathlib import Path
 
@@ -104,14 +104,15 @@ def run_parakeet_mlx(rows):
 def timed(rows, fn, name, note=""):
     out = ROOT / f"results/bench_{name}.jsonl"
     for r in rows[:2]: fn(r)
-    t0 = time.time(); per = []
+    proc = 0.0
     with open(out, "w") as f:
         for r in rows:
-            t1 = time.time(); text = fn(r); dt = time.time() - t1
-            per.append(r["seconds"] / dt)
+            t1 = time.perf_counter(); text = fn(r); dt = time.perf_counter() - t1
+            proc += dt
             f.write(json.dumps({"id": r["id"], "text": text, "rtf": r["seconds"] / dt}) + "\n")
     audio = sum(r["seconds"] for r in rows)
-    return out, audio / sum(1.0 / p for p in per) if per else float("nan"), note or "per-utterance processing time, model load excluded"
+    # total audio ÷ total processing time — the same definition the engine-reported runtimes use
+    return out, audio / proc if proc else float("nan"), note or "per-utterance processing time, model load excluded"
 
 def main():
     ap = argparse.ArgumentParser(); ap.add_argument("--set", default="dev50"); ap.add_argument("--runtimes", default="voxrt-int8,voxrt-f32,sherpa,onnx-asr,parakeet.cpp")
@@ -124,6 +125,7 @@ def main():
             if rt == "voxrt-int8": out, wall, note = run_voxrt(rows, "int8")
             elif rt == "voxrt-f32": out, wall, note = run_voxrt(rows, "f32")
             elif rt == "voxrt-gpu": out, wall, note = run_voxrt(rows, "int8", "gpu")
+            elif rt == "voxrt-ane": out, wall, note = run_voxrt(rows, "int8", "ane")
             elif rt == "sherpa": out, wall, note = run_sherpa(rows)
             elif rt == "onnx-asr": out, wall, note = run_onnx_asr(rows)
             elif rt == "parakeet.cpp": out, wall, note = run_parakeet_cpp_bench(rows)

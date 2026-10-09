@@ -43,7 +43,7 @@ scored with the leaderboard-exact scorer. One number per runtime, measured back 
 
 | Workload | voxrt GPU (default) | voxrt CPU | Photon GPU | Photon CPU |
 |---|---|---|---|---|
-| dev50, 50 short clips | **202×** · WER 1.78 | 72× · WER 1.68 | 100× · WER 1.78 | 71× · WER 1.68 |
+| dev50, 50 short clips | **202×** · WER 1.78 (214× with the Neural Engine) | 72× · WER 1.68 | 100× · WER 1.78 | 71× · WER 1.68 |
 | LibriSpeech test-clean, 2,620 utterances | **197× · WER 1.96** | 79× · WER 1.95 | — | 51×\* · WER 1.96 |
 | one 27 s utterance | **0.11 s (250×)** | 0.26 s (104×) | — | 0.37 s (72×) |
 | TED-LIUM 3 long-form, 148 min | **174× · WER 2.54** | 92× · WER 2.55 | — | 65× · WER 2.52 |
@@ -71,8 +71,9 @@ Energy impact is macOS's relative score (Activity Monitor), not watts.*
 | dev50, 50 short clips | **104×** · WER 1.68 | 98× · WER 1.68 | 42× · WER 1.18 |
 
 *voxrt's test-clean output on this machine is byte-identical to the Mac run (2,620 / 2,620). † runs the 0.6B teacher model,
-so its WER is not comparable. On Apple GPUs [parakeet-mlx](https://github.com/senstella/parakeet-mlx) runs the teacher
-model at 367× on dev50 (MLX, bf16) — the fastest thing on short clips today.* Method, versions and all runs:
+so its WER is not comparable. On the M4 Max, [parakeet-mlx](https://github.com/senstella/parakeet-mlx) runs the teacher
+model at 60× on dev50 (MLX, bf16; 95× timed from decoded samples) and sherpa-onnx at 30×; an earlier version of this
+page listed parakeet-mlx at 367× because of a timing bug in our harness, fixed in `bench/run_all.py`.* Method, versions and all runs:
 [`bench/README.md`](bench/README.md).
 
 ## Quick start

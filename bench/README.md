@@ -22,7 +22,7 @@ only back-to-back pairs are comparable — the pairs below were measured togethe
 | sherpa-onnx 1.13.8 int8 | parakeet-tdt-0.6b-v3 (teacher) | CPU | 28 | 1.88 |
 | onnx-asr 0.12.0 int8 | teacher | CPU (+CoreML EP partial) | 18 | 1.78 |
 | parakeet.cpp 2de154c q8_0 | teacher | CPU | 13 | 1.28 |
-| parakeet-mlx 0.5.3 bf16 | teacher | Apple GPU (MLX 0.32.3) | 357 | 1.48 |
+| parakeet-mlx 0.5.3 bf16 | teacher | Apple GPU (MLX 0.32.3) | 60‡ | 1.48 |
 | voxrt f32 (reference path) | parakeet-redux dequantised | CPU | 11 | 1.78 |
 
 Longer audio (single file, best of 3):
@@ -35,25 +35,38 @@ Longer audio (single file, best of 3):
 | LibriSpeech test-clean, 2,620 utts | 79×, WER 1.95 | 51×*, WER 1.96 | — |
 
 \* Photon's test-clean pass ran while other jobs were active; its dev50 number is the clean one.
+‡ Corrected 2026-10-09: the harness's per-utterance timer (`timed()`) computed total audio ÷ Σ(time ÷ clip length)
+instead of total audio ÷ total time, which inflated parakeet-mlx (the only runtime measured with it after the change)
+to 357–367×. Recomputed from the same per-utterance timings: 60× (95× when timed from decoded samples, without its
+ffmpeg-based file loading). sherpa-onnx and onnx-asr were measured before the change; rerun with the fixed timer they
+give 30× and 19×.
 
 Reading the table: the teacher-model runtimes score a different model (the distilled ternary model is ~0.4 WER
-behind its teacher on LibriSpeech), so compare them on speed only. parakeet-mlx on the GPU is the fastest thing on
-this machine for short clips (the GPU is idle otherwise and the per-utterance work is tiny) and on par with the CPU
-runtimes for long audio, where its per-step decoding dominates. Among CPU runtimes of the ternary model, voxrt and
+behind its teacher on LibriSpeech), so compare them on speed only. parakeet-mlx on the GPU is on par with the CPU
+runtimes (its greedy decoding runs step by step through MLX). Among CPU runtimes of the ternary model, voxrt and
 Photon are the only two at this speed; the open ONNX/GGUF runtimes of the teacher are 3–6× slower.
 
 ## Results, Apple GPU, 2026-10-09 (same M4 Max)
 
 Encoder (subsampling + 24 layers) on the GPU via Metal, decoder on the CPU; the default on Apple Silicon. Back to back
-with `run_all.py --runtimes voxrt-int8,voxrt-gpu,photon-cpu,photon-mps,parakeet-mlx` (dev50):
+with `run_all.py --runtimes voxrt-int8,voxrt-gpu,photon-cpu,photon-mps,parakeet-mlx` (dev50; parakeet-mlx and the
+Neural Engine row from the corrected rerun the same day, `--runtimes voxrt-ane,voxrt-gpu,voxrt-int8,parakeet-mlx,…`):
 
 | runtime | × real time | WER % dev50 |
 |---|---|---|
+| **voxrt Neural Engine + GPU** (with a Core ML bundle) | **214** | 1.78 |
 | **voxrt GPU** | **202** | 1.78 |
 | Photon GPU (`mps`) | 100 | 1.78 |
 | voxrt CPU | 72 | 1.68 |
 | Photon CPU | 71 | 1.68 |
-| parakeet-mlx (teacher, bf16) | 367 | 1.48 |
+| parakeet-mlx (teacher, bf16) | 60 (95 from decoded samples) | 1.48 |
+| sherpa-onnx int8 (teacher, CPU) | 30 | 1.88 |
+| onnx-asr int8 (teacher) | 19 | 1.78 |
+| parakeet.cpp q8_0 (teacher, CPU) | 13 | 1.28 |
+
+Photon GPU measures ~100× on its own but 33× when it runs after parakeet-mlx in the same harness session (the MLX
+model stays resident on the GPU); the table has the clean number, and voxrt was not affected (202× in both orders).
+
 
 test-clean 197× · WER 1.96 (CPU 79× · 1.95); TED-LIUM long-form 174× · WER 2.54. GPU encoder output equals the CPU f32
 reference to ~2·10⁻⁶ relative (`tests/metal_encoder.rs`); ternary GEMMs reach 8–9 TFLOP/s f32 on long inputs
