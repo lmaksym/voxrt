@@ -143,6 +143,13 @@ Python takes `voxrt.Transcriber(device="auto" | "gpu" | "cpu")` and reports `t.d
 `VOXRT_DEVICE` when the model loads. GPU transcripts follow the f32 reference path (WER 1.96 on test-clean) and are not
 byte-identical to the int8 CPU path.
 
+**Neural Engine (preview).** With a Core ML bundle next to the weights, built once with
+[`tools/coreml/convert_encoder.py`](tools/coreml/README.md), the encoder layers of inputs up to ≈ 20 s run on the
+Apple Neural Engine (macOS 15+) and longer ones on the GPU; `auto` picks this when the bundle exists, `VOXRT_DEVICE=ane`
+asks for it. M4 Max, back to back: test-clean 218–221× real time vs 176–188× on the GPU alone, WER 1.95; TED-LIUM
+long-form unchanged (WER 2.53). The bundle is ≈ 700 MB (int8 weights, fp16 compute), and the first load compiles it for
+the Neural Engine (≈ 40 s, once).
+
 ### Python
 
 ```python
@@ -215,6 +222,8 @@ Errors return `NULL`; `voxrt_last_error()` describes them. Streaming: `voxrt_str
 - [x] Linux x86-64
 - [ ] Linux arm64, Windows — planned
 - [x] Apple GPU (Metal) — encoder and subsampling on Apple-silicon GPUs, the default there
+- [ ] Apple Neural Engine (Core ML) — preview: short inputs on the Neural Engine, long ones on the GPU; next, a
+  bundle download instead of a local conversion, and measurements on base M-series chips
 
 ## How it works
 

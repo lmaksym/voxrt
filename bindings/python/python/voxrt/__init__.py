@@ -69,8 +69,8 @@ class Transcriber:
 
     `model` is a local model directory or a Hugging Face repo id; when omitted, `VOXRT_MODEL_DIR` is used if set,
     otherwise `moondream/parakeet-redux` is downloaded into the Hugging Face cache (≈ 180 MB, once).
-    `device`: "auto" (default; the Apple GPU when available), "gpu" or "cpu" (the byte-identical cross-platform
-    path); `VOXRT_DEVICE` sets the default. One instance can serve several threads (the GIL is released while
+    `device`: "auto" (default; the Apple GPU when available, plus the Neural Engine for short inputs when a Core ML
+    bundle is in `<model>/coreml`), "gpu", "ane" or "cpu" (the byte-identical cross-platform path); `VOXRT_DEVICE` sets the default. One instance can serve several threads (the GIL is released while
     transcribing).
     """
 
@@ -86,7 +86,7 @@ class Transcriber:
 
     @property
     def device(self) -> str:
-        """Where the encoder runs: "gpu" (Apple silicon, Metal) or "cpu"."""
+        """Where the encoder runs: "ane" (Neural Engine), "gpu" (Apple silicon, Metal) or "cpu"."""
         return self._t.device
 
     @classmethod

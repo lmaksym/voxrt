@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+- Apple Neural Engine encoder (preview, feature `coreml`, `VOXRT_DEVICE=ane`, Python `device="ane"`, and `auto` when
+  a bundle exists): the encoder layers as a Core ML model, one function per length bucket (64–768 frames) over one
+  shared copy of int8 weights, converted by `tools/coreml/convert_encoder.py`. Inputs up to `VOXRT_ANE_MAX_FRAMES`
+  (default 256 ≈ 20 s) run on the Neural Engine, longer ones on the GPU. M4 Max: test-clean 218–221× real time vs
+  176–188× GPU-only at WER 1.95; TED-LIUM long-form unchanged (WER 2.53).
+- `scripts/wer.sh` names results by device; `bench/prod_bench.py` covers the Neural Engine; `bench/power.sh` reads
+  per-rail power (CPU / GPU / Neural Engine) with powermetrics.
+
 ## 0.1.0 — 2026-10-09
 - Rust engine for `moondream/parakeet-redux`: NeMo-exact log-mel frontend, FastConformer encoder, TDT greedy decoder
   with NeMo semantics, tokenizer; fp32 path token-identical to the Python reference on LibriSpeech test-clean.

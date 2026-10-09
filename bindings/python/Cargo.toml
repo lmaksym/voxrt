@@ -12,6 +12,7 @@ crate-type = ["cdylib"]
 
 [features]
 metal = ["voxrt/metal"]   # Apple GPU encoder (VOXRT_DEVICE=gpu)
+coreml = ["voxrt/coreml"] # Apple Neural Engine encoder (VOXRT_DEVICE=ane)
 
 [dependencies]
 voxrt = { version = "0.1.0", path = "../../crates/voxrt" }

@@ -20,11 +20,15 @@ thiserror = { workspace = true }
 [features]
 # Apple GPU encoder (macOS / iOS): `VOXRT_DEVICE=gpu` at run time
 metal = ["dep:objc2", "dep:objc2-metal", "dep:objc2-foundation"]
+# Apple Neural Engine encoder through Core ML (a converted model next to the weights): `VOXRT_DEVICE=ane`
+coreml = ["metal", "dep:objc2-core-ml", "dep:block2"]
 
 [target.'cfg(target_vendor = "apple")'.dependencies]
 objc2 = { version = "0.6", optional = true }
 objc2-metal = { version = "0.3", optional = true }
 objc2-foundation = { version = "0.3", optional = true }
+block2 = { version = "0.6", optional = true }
+objc2-core-ml = { version = "0.3", optional = true, default-features = false, features = ["std", "MLModel", "MLModelConfiguration", "MLMultiArray", "MLFeatureProvider", "MLDictionaryFeatureProvider", "MLFeatureValue", "MLModel_MLModelCompilation", "block2"] }
 
 [dev-dependencies]
 anyhow = { workspace = true }

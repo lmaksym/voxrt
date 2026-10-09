@@ -1,4 +1,4 @@
-"""Production-style benchmark (CPU vs Apple GPU): load time, first-call and warm latency per clip length, CPU time per
+"""Production-style benchmark (CPU vs Apple GPU vs Neural Engine; `DEVICES=cpu,gpu,ane`, `SUSTAIN_S=60`): load time, first-call and warm latency per clip length, CPU time per
 run, and — under a sustained load — the process's CPU % and macOS energy impact (`top -stats power`, the figure
 Activity Monitor shows; a relative score, not watts — for watts run `sudo powermetrics --samplers gpu_power,cpu_power`
 alongside).
@@ -9,7 +9,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 EXE = ROOT / "target/release/voxrt"
 AUDIO = sys.argv[1] if len(sys.argv) > 1 else str(ROOT / "data/tedlium/ted06.wav")
-DEVICES = ["cpu", "gpu"]
+DEVICES = os.environ.get("DEVICES", "cpu,gpu,ane").split(",")
+SUSTAIN_S = int(os.environ.get("SUSTAIN_S", "60"))  # clip length for the sustained load
 
 
 def latency(device):
@@ -19,7 +20,7 @@ def latency(device):
     return [json.loads(l) for l in out.splitlines() if l.startswith("{")]
 
 
-def sustained(device, seconds=60, repeat=30):
+def sustained(device, seconds=SUSTAIN_S, repeat=30):
     """Run a sustained load and sample the process with top: mean CPU % and energy impact."""
     env = dict(os.environ, VOXRT_DEVICE=device)
     p = subprocess.Popen([EXE, "bench", AUDIO, "--seconds", str(seconds), "--repeat", str(repeat)],

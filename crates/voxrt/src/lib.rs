@@ -1,6 +1,8 @@
 //! voxrt: inference engine for `moondream/parakeet-redux`.
 
 pub mod audio;
+#[cfg(all(feature = "coreml", target_vendor = "apple"))]
+pub mod coreml;
 pub mod decoder;
 pub mod encoder;
 pub mod error;

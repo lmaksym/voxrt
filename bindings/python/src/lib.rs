@@ -108,9 +108,10 @@ impl PyTranscriber {
             Some("auto") => Device::Auto,
             Some("cpu") => Device::Cpu,
             Some("gpu") => Device::Gpu,
+            Some("ane") => Device::Ane,
             Some(other) => {
                 return Err(PyValueError::new_err(format!(
-                    "device must be auto, cpu or gpu, not {other:?}"
+                    "device must be auto, cpu, gpu or ane, not {other:?}"
                 )))
             }
         };
@@ -121,7 +122,7 @@ impl PyTranscriber {
         Ok(Self { inner })
     }
 
-    /// Where the encoder runs: "gpu" or "cpu".
+    /// Where the encoder runs: "ane", "gpu" or "cpu".
     #[getter]
     fn device(&self) -> &'static str {
         self.inner.device()
