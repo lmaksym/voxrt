@@ -57,8 +57,8 @@ Encodings measured on an M4 Max, 64-frame bucket (≈ 5 s), Neural Engine, all e
 Each block's conv writes a full-width partial result, so the chain's cost grows with the input length faster than a
 single int8 pass: 23 / 42 / 70 / 119 ms at 128 / 192 / 256 / 384 frames, against 14 / 25 / 40 / 70 ms for int8 per row.
 
-- **Compile cost.** Core ML compiles each function for the Neural Engine on its first load (tens of seconds per bucket)
-  and caches the result for that `.mlmodelc`; later loads take ≈ 0.1 s per bucket. With `auto`, voxrt loads the bundle
+- **Compile cost.** Core ML compiles each function for the Neural Engine on its first load (≈ 4.7 min for all seven
+  buckets on an M4 Max) and caches the result for that `.mlmodelc`; later loads take ≈ 3 s per bucket. With `auto`, voxrt loads the bundle
   on a background thread and serves from the GPU until it is ready. In an iOS app, Xcode compiles the `.mlpackage` at
   build time.
 

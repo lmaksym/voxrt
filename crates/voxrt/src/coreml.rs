@@ -11,8 +11,8 @@
 //! than the Neural Engine beyond ≈ 5 s (`VOXRT_ANE_MAX_FRAMES=64`); on chips with a smaller GPU the Neural Engine
 //! keeps up to longer inputs.
 //!
-//! Core ML compiles each function for the Neural Engine on its first load (tens of seconds per bucket) and caches the
-//! result per `.mlmodelc` and executable; later loads take ≈ 0.4 s per bucket.
+//! Core ML compiles each function for the Neural Engine on its first load (≈ 4.7 min for all seven buckets on an M4
+//! Max) and caches the result per `.mlmodelc` and executable; later loads take ≈ 3 s per bucket.
 use std::path::{Path, PathBuf};
 use std::ptr::NonNull;
 use std::sync::Mutex;
