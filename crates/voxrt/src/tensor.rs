@@ -182,7 +182,10 @@ unsafe fn tile_rows_avx2(
             let x01 = _mm256_set_m128(_mm_loadu_ps(xp[1].add(c)), _mm_loadu_ps(xp[0].add(c)));
             let x23 = _mm256_set_m128(_mm_loadu_ps(xp[3].add(c)), _mm_loadu_ps(xp[2].add(c)));
             for r in 0..4 {
-                let wv = _mm256_broadcast_ps(&*(wp[r].add(c) as *const __m128));
+                // unaligned: weight rows start at any multiple of 4 bytes (vbroadcastf128 has no alignment rule,
+                // but a `&__m128` does)
+                let w4 = _mm_loadu_ps(wp[r].add(c));
+                let wv = _mm256_set_m128(w4, w4);
                 acc[r][0] = _mm256_fmadd_ps(wv, x01, acc[r][0]);
                 acc[r][1] = _mm256_fmadd_ps(wv, x23, acc[r][1]);
             }
