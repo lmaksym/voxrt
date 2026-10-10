@@ -16,7 +16,7 @@ here.
 
 | File | What |
 |---|---|
-| `encoder.mlmodelc` | compiled multi-function Core ML model, one function `t{T}` per length bucket (64 … 768 encoder frames, up to ≈ 61 s) over one shared copy of the weights |
+| `encoder.mlmodelc` | compiled multi-function Core ML model, one function `t{T}` per length bucket (64 … 768 encoder frames, up to ≈ 61 s) over one shared copy of the weights (304 MB) |
 | `encoder.json` | the buckets and model width |
 
 ## Use
@@ -27,18 +27,19 @@ Swift/C bindings, place it next to the model:
 ```sh
 git lfs clone https://huggingface.co/moondream/parakeet-redux models/parakeet-redux
 git lfs clone https://huggingface.co/MaksL/voxrt-parakeet-redux-coreml models/parakeet-redux/coreml
-voxrt transcribe clip.wav        # auto: GPU at once, Neural Engine for inputs up to ≈ 20 s once compiled
+voxrt transcribe clip.wav        # auto: GPU at once, Neural Engine once compiled
 ```
 
-macOS compiles the model for the Neural Engine on its first load (≈ 1.5 min for all buckets on an M4 Max) and caches
-it; voxrt serves from the GPU meanwhile. Requires macOS 15.
+macOS compiles the model for the Neural Engine on its first load (a few minutes for all buckets on an M4 Max) and
+caches it; voxrt serves from the GPU meanwhile. Requires macOS 15.
 
 ## How it was made
 
-`tools/coreml/convert_encoder.py` in the voxrt repository, from the parakeet-redux checkpoint. Changes relative to
-the original weights: the ternary weights × group scales are re-quantised to int8 with one scale per output row, and
-the model computes in fp16 on the Neural Engine. Measured against voxrt's f32 CPU path: encoder output cosine ≈ 0.9999;
-LibriSpeech test-clean WER 1.95 (CPU path 1.95), TED-LIUM long-form 2.52 (2.54 on the GPU).
+`tools/coreml/convert_encoder.py` in the voxrt repository, from the parakeet-redux checkpoint. The ternary weights are
+stored exactly, in 2 bits: each linear is a chain of 1×1 convs, one per 128-column block, whose weights are 2-bit
+codes into a {-1, 0, +1} table, with that block's per-row scales applied to its output. The model computes in fp16
+on the Neural Engine. Measured against voxrt's f32 CPU path: encoder output cosine ≈ 0.9999; LibriSpeech test-clean
+WER 1.96, TED-LIUM long-form 2.53 (GPU path: 1.96 and 2.54).
 
 ## License and attribution
 

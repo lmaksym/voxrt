@@ -1,17 +1,18 @@
 //! Apple Neural Engine encoder (feature `coreml`, `VOXRT_DEVICE=ane`): the 24 encoder layers as a Core ML model,
 //! converted ahead of time by `tools/coreml/convert_encoder.py` into `<model>/coreml/`. The Neural Engine compiles
 //! fixed shapes only, so the bundle holds one function per length bucket (`t64`, `t128`, …) over one shared copy of
-//! the int8 weights; an input is padded to the smallest bucket that fits, with a key mask (softmax) and a row mask
-//! (depthwise conv) keeping padding out of the valid frames. The Neural Engine computes in fp16, so the output is
-//! close to, not equal to, the f32 reference.
+//! the weights; an input is padded to the smallest bucket that fits, with a key mask (softmax) and a row mask
+//! (depthwise conv) keeping padding out of the valid frames. The ternary weights are stored exactly, as 2-bit codes
+//! into a {-1, 0, +1} table with the per-128-column scales applied after each block; the Neural Engine computes in
+//! fp16, so the output is close to, not equal to, the f32 reference.
 //!
-//! Routing: only buckets up to `VOXRT_ANE_MAX_FRAMES` (default 256 frames ≈ 20 s) are loaded; longer inputs return
-//! `None` and the caller runs them on the GPU. Measured on an M4 Max, the Neural Engine is faster than Metal up to
-//! ≈ 20 s and slower beyond (padding to the bucket and the T² attention); on Macs with a smaller GPU the crossover
-//! moves up, so the limit is a setting.
+//! Routing: buckets up to `VOXRT_ANE_MAX_FRAMES` (default: all of them, 768 frames ≈ 61 s in the default bundle) are
+//! loaded; longer inputs return `None` and the caller runs them on the GPU. On an M4 Max the 40-core GPU is faster
+//! than the Neural Engine beyond ≈ 5 s (`VOXRT_ANE_MAX_FRAMES=64`); on chips with a smaller GPU the Neural Engine
+//! keeps up to longer inputs.
 //!
-//! Core ML compiles each function for the Neural Engine on its first load (seconds to tens of seconds per bucket) and
-//! caches the result per `.mlmodelc` and executable; later loads take ≈ 0.4 s per bucket.
+//! Core ML compiles each function for the Neural Engine on its first load (tens of seconds per bucket) and caches the
+//! result per `.mlmodelc` and executable; later loads take ≈ 0.4 s per bucket.
 use std::path::{Path, PathBuf};
 use std::ptr::NonNull;
 use std::sync::Mutex;
@@ -31,7 +32,7 @@ use crate::{Error, Result};
 /// Padding keys get this additive score (fp16-safe "minus infinity").
 const MASKED: f32 = -30_000.0;
 /// Default routing limit in encoder frames (see the module docs).
-const DEFAULT_MAX_FRAMES: usize = 256;
+const DEFAULT_MAX_FRAMES: usize = usize::MAX;
 
 struct Bucket {
     t: usize,

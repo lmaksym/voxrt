@@ -1,6 +1,6 @@
-//! Neural Engine encoder (feature `coreml`) vs the CPU f32 reference on golden utterances. The Neural Engine computes
-//! in fp16 with int8 weights, so the bar is direction (cosine), not bit-level agreement; the WER gate is the real
-//! accuracy check. Skipped without golden/, models/ or a converted bundle in `<model>/coreml`.
+//! Neural Engine encoder (feature `coreml`) vs the CPU f32 reference on golden utterances. The weights are exact
+//! (2-bit ternary) but the Neural Engine computes in fp16, so the bar is direction (cosine), not bit-level agreement;
+//! the WER gate is the real accuracy check. Skipped without golden/, models/ or a converted bundle in `<model>/coreml`.
 #![cfg(all(feature = "coreml", target_vendor = "apple"))]
 mod common;
 use common::*;

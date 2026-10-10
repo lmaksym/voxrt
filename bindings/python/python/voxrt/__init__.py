@@ -70,7 +70,7 @@ class Transcriber:
     `model` is a local model directory or a Hugging Face repo id; when omitted, `VOXRT_MODEL_DIR` is used if set,
     otherwise `moondream/parakeet-redux` is downloaded into the Hugging Face cache (≈ 180 MB, once).
     `device`: "auto" (default; the Apple GPU when available, plus the Neural Engine for inputs up to ≈ 20 s on Apple
-    silicon Macs, whose Core ML bundle is downloaded on first use, ≈ 700 MB, and compiled by macOS in the background on
+    silicon Macs, whose Core ML bundle is downloaded on first use, ≈ 300 MB, and compiled by macOS in the background on
     first load), "gpu", "ane" or "cpu" (the byte-identical cross-platform path); `VOXRT_DEVICE` sets the default. One instance can serve several threads (the GIL is released while
     transcribing).
     """

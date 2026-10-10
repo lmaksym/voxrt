@@ -40,7 +40,7 @@ distillation of NVIDIA's Parakeet-TDT 0.6B (25 languages, 178 MB) — with nativ
 
 | Workload | voxrt GPU (default) | voxrt CPU | Photon GPU | Photon CPU |
 |---|---|---|---|---|
-| dev50, 50 short clips | **202×** · WER 1.78 (214× with the Neural Engine) | 72× · WER 1.68 | 100× · WER 1.78 | 71× · WER 1.68 |
+| dev50, 50 short clips | **202×** · WER 1.78 (171× on the Neural Engine) | 72× · WER 1.68 | 100× · WER 1.78 | 71× · WER 1.68 |
 | LibriSpeech test-clean, 2,620 utterances | **197× · WER 1.96** | 79× · WER 1.95 | — | 51× · WER 1.96 |
 | one 27 s utterance | **0.11 s (250×)** | 0.26 s (104×) | — | 0.37 s (72×) |
 | TED-LIUM 3 long-form, 148 min | **174× · WER 2.54** | 92× · WER 2.55 | — | 65× · WER 2.52 |
@@ -131,14 +131,15 @@ Python takes `voxrt.Transcriber(device="auto" | "gpu" | "cpu")` and reports `t.d
 `VOXRT_DEVICE` when the model loads. GPU transcripts follow the f32 reference path (WER 1.96 on test-clean) and are not
 byte-identical to the int8 CPU path.
 
-**Neural Engine.** On Apple silicon Macs (macOS 15+) the encoder layers of inputs up to ≈ 20 s run on the Apple
-Neural Engine and longer ones on the GPU. It needs a Core ML bundle (≈ 700 MB, int8 weights, fp16 compute):
-Python downloads [`MaksL/voxrt-parakeet-redux-coreml`](https://huggingface.co/MaksL/voxrt-parakeet-redux-coreml)
-on first use; for the CLI, Swift and C, clone it into `<model>/coreml` (or point `VOXRT_COREML_DIR` at it), or build
-it with [`tools/coreml/convert_encoder.py`](tools/coreml/README.md). `auto` uses it when present: macOS compiles the
-bundle for the Neural Engine on first load (≈ 1.5 min, cached afterwards) in the background while the GPU serves;
-`VOXRT_DEVICE=ane` waits for it. M4 Max, back to back: test-clean 218–221× real time vs 176–188× on the GPU alone,
-WER 1.95; TED-LIUM long-form unchanged (WER 2.53).
+**Neural Engine.** On Apple silicon (macOS 15+) the encoder layers can run on the Apple Neural Engine, with the
+ternary weights kept exact in 2 bits. It needs a Core ML bundle (≈ 300 MB, fp16 compute): Python downloads
+[`MaksL/voxrt-parakeet-redux-coreml`](https://huggingface.co/MaksL/voxrt-parakeet-redux-coreml) on first use; for the
+CLI, Swift and C, clone it into `<model>/coreml` (or point `VOXRT_COREML_DIR` at it), or build it with
+[`tools/coreml/convert_encoder.py`](tools/coreml/README.md). `auto` uses it when present: macOS compiles the bundle for
+the Neural Engine on first load (cached afterwards) in the background while the GPU serves; `VOXRT_DEVICE=ane` waits
+for it. M4 Max: dev50 171×, test-clean 168× (WER 1.96), TED-LIUM long-form 110× (WER 2.53). The M4 Max's 40-core GPU
+is faster on inputs over ≈ 5 s, so `VOXRT_ANE_MAX_FRAMES=64` sends only those to the Neural Engine there; on chips with
+a smaller GPU the Neural Engine keeps the lead to longer inputs.
 
 ### Python
 
@@ -212,8 +213,8 @@ Errors return `NULL`; `voxrt_last_error()` describes them. Streaming: `voxrt_str
 - [x] Linux x86-64
 - [ ] Linux arm64, Windows — planned
 - [x] Apple GPU (Metal) — encoder and subsampling on Apple-silicon GPUs, the default there
-- [x] Apple Neural Engine (Core ML) — inputs up to ≈ 20 s on the Neural Engine, longer ones on the GPU; prebuilt
-  bundle on Hugging Face, compiled in the background on first load
+- [x] Apple Neural Engine (Core ML) — exact 2-bit ternary weights on the Neural Engine; prebuilt bundle on Hugging
+  Face, compiled in the background on first load
 
 ## How it works
 

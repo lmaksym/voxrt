@@ -3,12 +3,14 @@
 ## Unreleased
 - Apple Neural Engine encoder (feature `coreml`, `VOXRT_DEVICE=ane`, Python `device="ane"`, and `auto` when
   a bundle exists): the encoder layers as a Core ML model, one function per length bucket (64–768 frames) over one
-  shared copy of int8 weights, converted by `tools/coreml/convert_encoder.py`. Inputs up to `VOXRT_ANE_MAX_FRAMES`
-  (default 256 ≈ 20 s) run on the Neural Engine, longer ones on the GPU. M4 Max: test-clean 218–221× real time vs
-  176–188× GPU-only at WER 1.95; TED-LIUM long-form unchanged (WER 2.53).
-- Prebuilt Core ML bundle on Hugging Face (`MaksL/voxrt-parakeet-redux-coreml`, CC-BY-4.0); the Python package
-  downloads it on Apple silicon Macs for the default model. `auto` loads it in a background thread, so the first
-  Neural Engine compile (≈ 1.5 min, once) never blocks transcription; the GPU serves until it is ready.
+  shared copy of the weights, converted by `tools/coreml/convert_encoder.py`. The ternary weights stay exact in 2 bits:
+  each linear is a chain of 1×1 convs, one per 128-column block, over 2-bit codes into a {-1, 0, +1} table, scaled per
+  block, in the Neural Engine's native `[1, C, 1, T]` layout (8.7 ms per 5 s window on an M4 Max, level with int8).
+  `VOXRT_ANE_MAX_FRAMES` (default: every bucket) caps the inputs sent to the Neural Engine; longer ones run on the GPU.
+  M4 Max: dev50 171×, test-clean 168× at WER 1.96; TED-LIUM long-form 110× at WER 2.53.
+- Prebuilt Core ML bundle on Hugging Face (`MaksL/voxrt-parakeet-redux-coreml`, 304 MB, CC-BY-4.0); the Python
+  package downloads it on Apple silicon Macs for the default model. `auto` loads it in a background thread, so the
+  first Neural Engine compile (once) never blocks transcription; the GPU serves until it is ready.
   `Transcriber::load_full` takes the bundle directory explicitly.
 - `scripts/wer.sh` names results by device; `bench/prod_bench.py` covers the Neural Engine; `bench/power.sh` reads
   per-rail power (CPU / GPU / Neural Engine) with powermetrics.

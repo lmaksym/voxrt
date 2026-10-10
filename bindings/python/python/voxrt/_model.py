@@ -35,7 +35,7 @@ def resolve_model(model: Optional[Union[str, "os.PathLike[str]"]], revision: Opt
 
 def resolve_coreml(model_dir: str, device: Optional[str], download: bool) -> Optional[str]:
     """The Core ML bundle for the Neural Engine: `VOXRT_COREML_DIR`, `<model>/coreml`, or, for the default model on
-    Apple silicon Macs with device "auto"/"ane", `COREML_REPO` downloaded into the Hugging Face cache (≈ 700 MB,
+    Apple silicon Macs with device "auto"/"ane", `COREML_REPO` downloaded into the Hugging Face cache (≈ 300 MB,
     once). None otherwise."""
     if os.environ.get("VOXRT_COREML_DIR"):
         return os.environ["VOXRT_COREML_DIR"]
