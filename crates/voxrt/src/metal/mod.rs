@@ -347,7 +347,7 @@ impl TLin {
             let mut row = vec![0i8; inp];
             for r in 0..q.out_features {
                 unpack_row(&qw[r * rb..(r + 1) * rb], inp, &mut row);
-                for quad in row.chunks_exact(4) {
+                for quad in row.as_chunks::<4>().0 {
                     let mut b = 0u8;
                     for (j, &t) in quad.iter().enumerate() {
                         b |= ((t + 1) as u8) << (2 * j);
@@ -356,7 +356,9 @@ impl TLin {
                 }
             }
             scales.extend(
-                sc.chunks_exact(2)
+                sc.as_chunks::<2>()
+                    .0
+                    .iter()
                     .map(|c| half::f16::from_le_bytes([c[0], c[1]]).to_f32()),
             );
         }

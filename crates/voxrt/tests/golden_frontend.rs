@@ -8,7 +8,9 @@ fn mel_filterbank_matches_librosa() {
     let want: Vec<f32> =
         std::fs::read(root().join("crates/voxrt/tests/fixtures/mel_fb_128x257.f32.bin"))
             .unwrap()
-            .chunks_exact(4)
+            .as_chunks::<4>()
+            .0
+            .iter()
             .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
             .collect();
     let got = slaney_mel_filterbank(16_000, 512, 128);

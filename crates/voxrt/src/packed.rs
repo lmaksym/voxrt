@@ -101,7 +101,7 @@ impl TernaryMatrix {
                 Layout::Quad16 => put_quad16(&mut w, r, &row),
                 Layout::Pairs => {
                     let (rp, half) = (r / 2, r % 2);
-                    for (sl, chunk) in row.chunks_exact(8).enumerate() {
+                    for (sl, chunk) in row.as_chunks::<8>().0.iter().enumerate() {
                         let o = (rp * (inp / 8) + sl) * 16 + half * 8;
                         w[o..o + 8].copy_from_slice(chunk);
                     }
@@ -120,7 +120,9 @@ impl TernaryMatrix {
             }
         }
         let scales = scales_f16
-            .chunks_exact(2)
+            .as_chunks::<2>()
+            .0
+            .iter()
             .map(|c| f16::from_le_bytes([c[0], c[1]]).to_f32())
             .collect::<Vec<_>>();
         assert_eq!(scales.len(), out * ng);
@@ -181,14 +183,14 @@ impl TernaryMatrix {
                 Layout::Packed2 => unreachable!("Packed2 is ternary-only"),
                 Layout::Rows8 => {
                     let (rb, sub) = (r / 8, r % 8);
-                    for (c, chunk) in row.chunks_exact(16).enumerate() {
+                    for (c, chunk) in row.as_chunks::<16>().0.iter().enumerate() {
                         let o = (rb * (inp / 16) + c) * 128 + sub * 16;
                         w[o..o + 16].copy_from_slice(chunk);
                     }
                 }
                 Layout::Pairs => {
                     let (rp, half) = (r / 2, r % 2);
-                    for (sl, chunk) in row.chunks_exact(8).enumerate() {
+                    for (sl, chunk) in row.as_chunks::<8>().0.iter().enumerate() {
                         let o = (rp * (inp / 8) + sl) * 16 + half * 8;
                         w[o..o + 8].copy_from_slice(chunk);
                     }
@@ -273,7 +275,7 @@ impl TernaryMatrix {
 /// Write row `r` (`inp` columns) into a `Quad16` plane.
 fn put_quad16(w: &mut [i8], r: usize, row: &[i8]) {
     let inp = row.len();
-    for (q, quad) in row.chunks_exact(4).enumerate() {
+    for (q, quad) in row.as_chunks::<4>().0.iter().enumerate() {
         let o = ((r / 16) * (inp / 4) + q) * 64 + (r % 16) * 4;
         w[o..o + 4].copy_from_slice(quad);
     }

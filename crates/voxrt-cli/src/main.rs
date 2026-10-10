@@ -375,11 +375,15 @@ fn npy_f32(path: &std::path::Path) -> Vec<f32> {
     let header = std::str::from_utf8(&b[start..start + hlen]).unwrap();
     let body = &b[start + hlen..];
     if header.contains("'<i4'") {
-        body.chunks_exact(4)
+        body.as_chunks::<4>()
+            .0
+            .iter()
             .map(|c| i32::from_le_bytes([c[0], c[1], c[2], c[3]]) as f32)
             .collect()
     } else {
-        body.chunks_exact(4)
+        body.as_chunks::<4>()
+            .0
+            .iter()
             .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
             .collect()
     }

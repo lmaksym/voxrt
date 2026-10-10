@@ -14,7 +14,13 @@ fn decode_matches_reference_text() {
             .unwrap();
     for id in golden_ids() {
         let em = read_npy(golden_dir().join(&id).join("emissions.npy"));
-        let ids: Vec<usize> = em.data.chunks_exact(3).map(|c| c[0] as usize).collect();
+        let ids: Vec<usize> = em
+            .data
+            .as_chunks::<3>()
+            .0
+            .iter()
+            .map(|c| c[0] as usize)
+            .collect();
         let want = manifest["utterances"][&id]["hyp_text"].as_str().unwrap();
         let got = tok.decode(&ids);
         assert_eq!(got, want, "{id}");

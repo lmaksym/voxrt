@@ -10,11 +10,15 @@ pub fn load_f32(m: &ModelFile, name: &str) -> Result<(Vec<usize>, Vec<f32>)> {
     let (info, bytes) = m.tensor(name)?;
     let v = match info.dtype {
         Dtype::F32 => bytes
-            .chunks_exact(4)
+            .as_chunks::<4>()
+            .0
+            .iter()
             .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
             .collect(),
         Dtype::F16 => bytes
-            .chunks_exact(2)
+            .as_chunks::<2>()
+            .0
+            .iter()
             .map(|c| f16::from_le_bytes([c[0], c[1]]).to_f32())
             .collect(),
         d => return Err(Error::Format(format!("{name}: cannot load {d:?} as f32"))),
@@ -75,10 +79,9 @@ pub fn threads() -> usize {
 pub fn dot(a: &[f32], b: &[f32]) -> f32 {
     debug_assert_eq!(a.len(), b.len());
     let mut acc = [0f32; 8];
-    let ca = a.chunks_exact(8);
-    let cb = b.chunks_exact(8);
-    let (ra, rb) = (ca.remainder(), cb.remainder());
-    for (x, y) in ca.zip(cb) {
+    let (ca, ra) = a.as_chunks::<8>();
+    let (cb, rb) = b.as_chunks::<8>();
+    for (x, y) in ca.iter().zip(cb) {
         for k in 0..8 {
             acc[k] += x[k] * y[k];
         }
@@ -511,7 +514,9 @@ pub fn load_f16_bits(m: &ModelFile, name: &str, shape: &[usize]) -> Result<Vec<u
         )));
     }
     Ok(bytes
-        .chunks_exact(2)
+        .as_chunks::<2>()
+        .0
+        .iter()
         .map(|c| u16::from_le_bytes([c[0], c[1]]))
         .collect())
 }
@@ -802,15 +807,15 @@ fma_dispatch! {
 pub(crate) fn exp_row_scaled_portable(row: &mut [f32], scale: f32) -> f32 {
     let max = row.iter().fold(f32::NEG_INFINITY, |m, v| m.max(v * scale));
     let mut lanes = [0f32; 4];
-    let mut quads = row.chunks_exact_mut(4);
-    for q in &mut quads {
+    let (quads, tail) = row.as_chunks_mut::<4>();
+    for q in quads {
         for (v, l) in q.iter_mut().zip(&mut lanes) {
             *v = exp_poly(*v * scale - max);
             *l += *v;
         }
     }
     let mut sum = hsum4(lanes);
-    for v in quads.into_remainder() {
+    for v in tail {
         *v = exp_poly(*v * scale - max);
         sum += *v;
     }
@@ -1021,7 +1026,7 @@ mod exp_tests {
             );
         }
         #[cfg(target_arch = "aarch64")]
-        for ch in xs.chunks_exact(4) {
+        for ch in xs.as_chunks::<4>().0 {
             let mut out = [0f32; 4];
             unsafe {
                 use std::arch::aarch64::*;

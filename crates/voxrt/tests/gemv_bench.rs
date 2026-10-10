@@ -31,7 +31,7 @@ fn single_token_gemv() {
         let t1 = Instant::now();
         let mut acc = 0i64;
         for _ in 0..reps {
-            for ch in w.w.chunks_exact(64) {
+            for ch in w.w.as_chunks::<64>().0 {
                 acc += ch[0] as i64 + ch[32] as i64;
             }
         }
