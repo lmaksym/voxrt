@@ -16,4 +16,4 @@ coreml = ["voxrt/coreml"] # Apple Neural Engine encoder (VOXRT_DEVICE=ane)
 
 [dependencies]
 voxrt = { version = "0.1.0", path = "../../crates/voxrt" }
-pyo3 = { version = "0.23", features = ["extension-module", "abi3-py39"] }
+pyo3 = { version = "0.29", features = ["extension-module", "abi3-py39"] }

@@ -124,7 +124,7 @@ impl PyTranscriber {
         };
         let precision = voxrt::ternary_linear::Precision::from_env();
         let inner = py
-            .allow_threads(|| {
+            .detach(|| {
                 let coreml = coreml_dir.map(std::path::PathBuf::from);
                 Transcriber::load_full(&dir, precision, device, coreml.as_deref())
             })
@@ -148,7 +148,7 @@ impl PyTranscriber {
         sample_rate: u32,
     ) -> PyResult<PyTranscript> {
         let x = samples_from(audio, sample_rate)?;
-        let r = py.allow_threads(|| self.inner.transcribe_long(&x));
+        let r = py.detach(|| self.inner.transcribe_long(&x));
         Ok(PyTranscript {
             text: r.text,
             duration: x.len() as f64 / 16_000.0,
@@ -190,11 +190,11 @@ impl PyStream {
         samples: &Bound<'py, PyAny>,
     ) -> PyResult<Vec<Bound<'py, PyDict>>> {
         let x = samples_from(samples, 16_000)?;
-        let segs = py.allow_threads(|| self.inner.lock().unwrap().push(&x));
+        let segs = py.detach(|| self.inner.lock().unwrap().push(&x));
         segments_py(py, &segs)
     }
     fn flush<'py>(&self, py: Python<'py>) -> PyResult<Vec<Bound<'py, PyDict>>> {
-        let segs = py.allow_threads(|| self.inner.lock().unwrap().flush());
+        let segs = py.detach(|| self.inner.lock().unwrap().flush());
         segments_py(py, &segs)
     }
 }
