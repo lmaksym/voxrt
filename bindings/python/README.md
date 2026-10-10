@@ -4,7 +4,8 @@ Python bindings for the Parakeet Redux runtime: `pip install voxrt` (wheel) or `
 
 ```python
 import voxrt
-t = voxrt.Transcriber()                        # downloads moondream/parakeet-redux into the HF cache on first use
+t = voxrt.Transcriber()                        # downloads moondream/parakeet-redux into the HF cache on first use,
+                                               # plus the Neural Engine bundle on Apple silicon Macs (≈ 700 MB)
                                                # (or Transcriber("/path/to/model"), or set VOXRT_MODEL_DIR)
 r = t.transcribe("talk.mp3")                   # WAV natively; FLAC/OGG/MP3 with `pip install voxrt[audio]`;
 print(r.text)                                  # other formats (M4A, AAC, video) when ffmpeg is on PATH

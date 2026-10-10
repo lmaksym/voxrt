@@ -73,13 +73,15 @@ fn samples_from(audio: &Bound<'_, PyAny>, sample_rate: u32) -> PyResult<Vec<f32>
     let b: &[u8] = audio.extract().map_err(|_| {
         PyValueError::new_err("audio must be a path or float32 sample bytes (use voxrt.Transcriber.transcribe with an array)")
     })?;
-    if b.len() % 4 != 0 {
+    if !b.len().is_multiple_of(4) {
         return Err(PyValueError::new_err(
             "sample bytes length is not a multiple of 4",
         ));
     }
     let x: Vec<f32> = b
-        .chunks_exact(4)
+        .as_chunks::<4>()
+        .0
+        .iter()
         .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
         .collect();
     Ok(if sample_rate == 16_000 {
@@ -98,8 +100,13 @@ pub struct PyTranscriber {
 #[pymethods]
 impl PyTranscriber {
     #[new]
-    #[pyo3(signature = (model_dir=None, device=None))]
-    fn new(py: Python<'_>, model_dir: Option<String>, device: Option<String>) -> PyResult<Self> {
+    #[pyo3(signature = (model_dir=None, device=None, coreml_dir=None))]
+    fn new(
+        py: Python<'_>,
+        model_dir: Option<String>,
+        device: Option<String>,
+        coreml_dir: Option<String>,
+    ) -> PyResult<Self> {
         let dir = model_dir
             .map(std::path::PathBuf::from)
             .unwrap_or_else(voxrt::format::default_model_dir);
@@ -117,7 +124,10 @@ impl PyTranscriber {
         };
         let precision = voxrt::ternary_linear::Precision::from_env();
         let inner = py
-            .allow_threads(|| Transcriber::load_on(&dir, precision, device))
+            .allow_threads(|| {
+                let coreml = coreml_dir.map(std::path::PathBuf::from);
+                Transcriber::load_full(&dir, precision, device, coreml.as_deref())
+            })
             .map_err(err)?;
         Ok(Self { inner })
     }

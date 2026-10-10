@@ -42,3 +42,26 @@ fn ane_encoder_tracks_cpu_f32() {
         assert!(cos > 0.999, "{id}: cosine {cos:.6}");
     }
 }
+
+#[test]
+fn auto_switches_to_the_neural_engine_after_background_load() {
+    use voxrt::transcriber::{Device, Transcriber};
+    let dir = default_model_dir();
+    if !have_golden() || !AneEncoder::bundle_dir(&dir).join("encoder.json").exists() {
+        eprintln!("golden/ or the Core ML bundle missing; skipped");
+        return;
+    }
+    let t = Transcriber::load_on(&dir, Precision::Int8, Device::Auto).unwrap();
+    let audio =
+        voxrt::audio::read_wav(golden_dir().join(&golden_ids()[0]).join("audio.wav")).unwrap();
+    assert!(!t.transcribe_samples(&audio.samples).text.is_empty()); // GPU (or the Neural Engine if already loaded)
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(600);
+    while t.device() != "ane" {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "Neural Engine never loaded"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    assert!(!t.transcribe_samples(&audio.samples).text.is_empty());
+}

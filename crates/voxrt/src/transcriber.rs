@@ -49,9 +49,11 @@ pub struct Transcriber {
     /// Encoder layers on the Apple GPU (`VOXRT_DEVICE=gpu`, feature `metal`).
     #[cfg(all(feature = "metal", target_vendor = "apple"))]
     pub gpu: Option<crate::metal::GpuEncoder>,
-    /// Encoder layers on the Apple Neural Engine (`VOXRT_DEVICE=ane`, feature `coreml`).
+    /// Encoder layers on the Apple Neural Engine (feature `coreml`). Set at load time for `Device::Ane`; for
+    /// `Device::Auto` it is filled by a background thread once Core ML has compiled the bundle, and the GPU serves
+    /// until then.
     #[cfg(all(feature = "coreml", target_vendor = "apple"))]
-    pub ane: Option<crate::coreml::AneEncoder>,
+    pub ane: std::sync::Arc<std::sync::OnceLock<crate::coreml::AneEncoder>>,
 }
 
 #[derive(Debug, Clone)]
@@ -87,6 +89,17 @@ impl Transcriber {
 
     /// Load for an explicit device (`Device::Gpu` warns and falls back to the CPU when no suitable GPU exists).
     pub fn load_on(dir: impl AsRef<Path>, precision: Precision, device: Device) -> Result<Self> {
+        Self::load_full(dir, precision, device, None)
+    }
+
+    /// `load_on` with the Core ML bundle directory given explicitly (default: `VOXRT_COREML_DIR` or `<model>/coreml`).
+    #[allow(unused_variables)]
+    pub fn load_full(
+        dir: impl AsRef<Path>,
+        precision: Precision,
+        device: Device,
+        coreml_dir: Option<&Path>,
+    ) -> Result<Self> {
         let m = ModelFile::open(&dir)?;
         let frontend = Frontend::new(MelConfig {
             n_mels: m.config.encoder_config.num_mel_bins,
@@ -110,27 +123,38 @@ impl Transcriber {
             },
         };
         #[cfg(all(feature = "coreml", target_vendor = "apple"))]
-        let ane = match (device, precision, &gpu) {
-            // Auto takes the Neural Engine when a converted bundle is present (building it is the opt-in)
-            (Device::Ane | Device::Auto, Precision::Int8, Some(_)) => {
-                let bundle = crate::coreml::AneEncoder::bundle_dir(dir.as_ref());
-                if device == Device::Auto && !bundle.join("encoder.json").exists() {
-                    None
-                } else {
-                    match crate::coreml::AneEncoder::load(&bundle) {
-                        Ok(a) => {
-                            a.warm_up();
-                            Some(a)
-                        }
-                        Err(e) => {
-                            eprintln!("voxrt: Neural Engine unavailable ({e}); using the GPU");
-                            None
-                        }
-                    }
+        let ane = std::sync::Arc::new(std::sync::OnceLock::new());
+        #[cfg(all(feature = "coreml", target_vendor = "apple"))]
+        if let (Device::Ane | Device::Auto, Precision::Int8, Some(_)) = (device, precision, &gpu) {
+            use crate::coreml::AneEncoder;
+            let bundle = coreml_dir
+                .map(Path::to_path_buf)
+                .unwrap_or_else(|| AneEncoder::bundle_dir(dir.as_ref()));
+            let load = |bundle: &Path| match AneEncoder::load(bundle) {
+                Ok(a) => {
+                    a.warm_up();
+                    Some(a)
                 }
+                Err(e) => {
+                    eprintln!("voxrt: Neural Engine unavailable ({e}); using the GPU");
+                    None
+                }
+            };
+            if device == Device::Ane {
+                if let Some(a) = load(&bundle) {
+                    let _ = ane.set(a);
+                }
+            } else if bundle.join("encoder.json").exists() {
+                // Auto: the first load compiles the bundle for the Neural Engine (≈ 1.5 min, cached by Core ML
+                // afterwards), so it happens off the caller's thread and the GPU serves meanwhile
+                let slot = ane.clone();
+                std::thread::spawn(move || {
+                    if let Some(a) = load(&bundle) {
+                        let _ = slot.set(a);
+                    }
+                });
             }
-            _ => None,
-        };
+        }
         #[cfg(not(all(feature = "coreml", target_vendor = "apple")))]
         if device == Device::Ane {
             eprintln!("voxrt: built without Neural Engine support (feature `coreml`); using the default device");
@@ -185,7 +209,7 @@ impl Transcriber {
         #[cfg(all(feature = "coreml", target_vendor = "apple"))]
         if let Some(a) = self
             .ane
-            .as_ref()
+            .get()
             .filter(|a| self.encoder.subsampling.out_frames(t) <= a.max_frames())
         {
             let t0 = std::time::Instant::now();
@@ -214,10 +238,11 @@ impl Transcriber {
         self.encoder.forward(feats, t, None, None)
     }
 
-    /// The device the encoder runs on: `"ane"`, `"gpu"` or `"cpu"`.
+    /// The device the encoder runs on: `"ane"`, `"gpu"` or `"cpu"` (with `Device::Auto`, `"gpu"` until the
+    /// background Neural Engine load has finished).
     pub fn device(&self) -> &'static str {
         #[cfg(all(feature = "coreml", target_vendor = "apple"))]
-        if self.ane.is_some() {
+        if self.ane.get().is_some() {
             return "ane";
         }
         #[cfg(all(feature = "metal", target_vendor = "apple"))]

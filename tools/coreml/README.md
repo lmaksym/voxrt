@@ -1,6 +1,8 @@
 # Core ML encoder (Apple Neural Engine)
 
-`convert_encoder.py` builds the 24 encoder layers as a Core ML program for `VOXRT_DEVICE=ane`.
+`convert_encoder.py` builds the 24 encoder layers as a Core ML program for `VOXRT_DEVICE=ane`. A prebuilt bundle is
+on Hugging Face, [`MaksL/voxrt-parakeet-redux-coreml`](https://huggingface.co/MaksL/voxrt-parakeet-redux-coreml)
+(its model card is `hf_card.md` here); build your own only to change the buckets or the weight format.
 
 ```sh
 python3 -m venv tools/coreml/.venv
@@ -46,8 +48,8 @@ the crossover should move up.
   Engine computes in fp16; together they keep cosine ≈ 0.9999 to the f32 reference and leave WER unchanged
   (test-clean 1.95, TED-LIUM 2.52, the same as the CPU path).
 - **Compile cost.** Core ML compiles each function for the Neural Engine on its first load (≈ 7–25 s per bucket,
-  ≈ 1.5 min for all seven) and caches the result for that `.mlmodelc`; later loads take ≈ 0.1 s per bucket. Apps
-  should ship the compiled bundle and load it once at startup or in the background.
+  ≈ 1.5 min for all seven) and caches the result for that `.mlmodelc`; later loads take ≈ 0.1 s per bucket. With
+  `auto`, voxrt loads the bundle on a background thread and serves from the GPU until it is ready.
 
 `check_encoder.py` compares a single-bucket package against the golden fp32 encoder outputs and times it per compute
 unit (`tools/coreml/.venv/bin/python tools/coreml/check_encoder.py <package> ANE,GPU,CPU`; build one with
