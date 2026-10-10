@@ -13,7 +13,8 @@ jobs:
       - run: cargo fmt --all --check
       - run: cargo clippy --all-targets -- -D warnings
       - run: cargo test
-      - uses: EmbarkStudios/cargo-deny-action@v2
+      - uses: EmbarkStudios/cargo-deny-action@v2 # a container action: Linux runners only
+        if: runner.os == 'Linux'
   python:
     runs-on: ${{ matrix.os }}
     strategy:

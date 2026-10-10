@@ -1,6 +1,6 @@
 """Same-machine, same-audio benchmark of Parakeet runtimes.
 One utterance at a time, model loaded once per runtime, 2 warm-up utterances, wall clock per utterance.
-usage: bench/.venv/bin/python bench/run_all.py [--set dev50] [--runtimes voxrt-int8,voxrt-gpu,voxrt-ane,voxrt-f32,sherpa,onnx-asr,parakeet.cpp,parakeet-mlx,photon-cpu,photon-mps,fluid-redux-ane,fluid-redux-gpu,fluid-v3-ane,fluid-v3-gpu]"""
+usage: bench/.venv/bin/python bench/run_all.py [--set dev50] [--runtimes voxrt-int8,voxrt-gpu,voxrt-ane,voxrt-f32,sherpa,sherpa-redux,onnx-asr,parakeet.cpp,parakeet-mlx,photon-cpu,photon-mps,fluid-redux-ane,fluid-redux-gpu,fluid-v3-ane,fluid-v3-gpu]"""
 import argparse, json, os, re, statistics, subprocess, sys, time
 from pathlib import Path
 
@@ -30,16 +30,21 @@ def run_voxrt(rows, precision, device="cpu"):
     proc_rtf = float(m.group(1)) if m else float("nan")
     return out, proc_rtf, "engine-reported processing time, model load excluded"
 
-def run_sherpa(rows):
+def run_sherpa(rows, redux=False):
     import sherpa_onnx, soundfile as sf
-    d = ROOT / "bench/models/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8"
+    if redux:  # Codyfederer/sherpa-onnx-nemo-parakeet-redux: the ternary model, MatMulNBits encoder
+        d = ROOT / "bench/models/sherpa-onnx-nemo-parakeet-redux"
+        files = ("encoder.onnx", "decoder.onnx", "joiner.onnx")
+    else:
+        d = ROOT / "bench/models/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8"
+        files = ("encoder.int8.onnx", "decoder.int8.onnx", "joiner.int8.onnx")
     rec = sherpa_onnx.OfflineRecognizer.from_transducer(
-        encoder=str(d / "encoder.int8.onnx"), decoder=str(d / "decoder.int8.onnx"), joiner=str(d / "joiner.int8.onnx"),
+        encoder=str(d / files[0]), decoder=str(d / files[1]), joiner=str(d / files[2]),
         tokens=str(d / "tokens.txt"), num_threads=os.cpu_count(), model_type="nemo_transducer", decoding_method="greedy_search")
     def one(r):
         x, sr = sf.read(wav_of(r), dtype="float32")
         s = rec.create_stream(); s.accept_waveform(sr, x); rec.decode_stream(s); return s.result.text
-    return timed(rows, one, "sherpa-int8")
+    return timed(rows, one, "sherpa-redux" if redux else "sherpa-int8")
 
 def run_onnx_asr(rows):
     import onnx_asr
@@ -142,6 +147,7 @@ def main():
             elif rt == "voxrt-gpu": out, wall, note = run_voxrt(rows, "int8", "gpu")
             elif rt == "voxrt-ane": out, wall, note = run_voxrt(rows, "int8", "ane")
             elif rt == "sherpa": out, wall, note = run_sherpa(rows)
+            elif rt == "sherpa-redux": out, wall, note = run_sherpa(rows, redux=True)
             elif rt == "onnx-asr": out, wall, note = run_onnx_asr(rows)
             elif rt == "parakeet.cpp": out, wall, note = run_parakeet_cpp_bench(rows)
             elif rt == "photon-cpu": out, wall, note = run_photon(rows, "cpu")
