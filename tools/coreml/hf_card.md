@@ -26,7 +26,7 @@ The Python package downloads this repository on first use on Apple silicon Macs:
 
 ```python
 import voxrt
-t = voxrt.Transcriber()            # device="auto": GPU at once, Neural Engine once compiled
+t = voxrt.Transcriber(device="ane")  # the default, "auto", runs the encoder on the GPU
 print(t.transcribe("clip.wav").text)
 ```
 
@@ -52,7 +52,6 @@ convolution, so valid frames never see padding.
 
 The encoder runs on the **Neural Engine**. The first load compiles the 2-bit program for it: ≈ 4.7 min for all seven
 buckets on an M4 Max. Core ML caches the result, and later loads take ≈ 3 s per bucket (≈ 20 s for all seven).
-voxrt's `auto` mode loads it on a background thread and transcribes on the GPU until it is ready;
 `VOXRT_ANE_MAX_FRAMES` limits the buckets loaded and sent to the Neural Engine.
 
 Warm, on an M4 Max: 8.7 ms per 64-frame (≈ 5 s) window, 23 / 42 / 70 / 119 ms at 128 / 192 / 256 / 384 frames.

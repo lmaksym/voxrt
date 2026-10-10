@@ -20,9 +20,9 @@ The output, in `<model>/coreml/`:
 | `encoder.json` | the buckets and model width |
 | `encoder.mlpackage` | the source package (not needed at run time; add it to an Xcode project to ship it in an app) |
 
-`VOXRT_COREML_DIR` points voxrt at a bundle somewhere else. With a bundle present, `VOXRT_DEVICE=auto` (the default)
-uses it once loaded. `VOXRT_ANE_MAX_FRAMES` (default: every bucket) caps which inputs go to the Neural Engine; longer
-ones run on the GPU. On an M4 Max, whose 40-core GPU runs the same 2-bit weights, the GPU is faster beyond ≈ 5 s
+`VOXRT_COREML_DIR` points voxrt at a bundle somewhere else. The Neural Engine is opt-in (`VOXRT_DEVICE=ane`); `auto`
+stays on the GPU. `VOXRT_ANE_MAX_FRAMES` (default: every bucket) caps which inputs go to the Neural Engine; longer ones
+run on the GPU. On an M4 Max, whose 40-core GPU runs the same 2-bit weights, the GPU is faster beyond ≈ 5 s
 (`VOXRT_ANE_MAX_FRAMES=64`); on chips with a smaller GPU the Neural Engine keeps the lead to longer inputs.
 
 ## Design
@@ -58,9 +58,8 @@ Each block's conv writes a full-width partial result, so the chain's cost grows 
 single int8 pass: 23 / 42 / 70 / 119 ms at 128 / 192 / 256 / 384 frames, against 14 / 25 / 40 / 70 ms for int8 per row.
 
 - **Compile cost.** Core ML compiles each function for the Neural Engine on its first load (≈ 4.7 min for all seven
-  buckets on an M4 Max) and caches the result for that `.mlmodelc`; later loads take ≈ 3 s per bucket. With `auto`, voxrt loads the bundle
-  on a background thread and serves from the GPU until it is ready. In an iOS app, Xcode compiles the `.mlpackage` at
-  build time.
+  buckets on an M4 Max) and caches the result for that `.mlmodelc`; later loads take ≈ 3 s per bucket. In an iOS app,
+  Xcode compiles the `.mlpackage` at build time.
 
 `check_encoder.py` compares a single-bucket package against the golden fp32 encoder outputs and times it per compute
 unit (`tools/coreml/.venv/bin/python tools/coreml/check_encoder.py <package> ANE,GPU,CPU`; build one with

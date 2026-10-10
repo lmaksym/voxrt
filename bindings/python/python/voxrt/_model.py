@@ -35,7 +35,7 @@ def resolve_model(model: Optional[Union[str, "os.PathLike[str]"]], revision: Opt
 
 def resolve_coreml(model_dir: str, device: Optional[str], download: bool) -> Optional[str]:
     """The Core ML bundle for the Neural Engine: `VOXRT_COREML_DIR`, `<model>/coreml`, or, for the default model on
-    Apple silicon Macs with device "auto"/"ane", `COREML_REPO` downloaded into the Hugging Face cache (≈ 300 MB,
+    Apple silicon Macs with device "ane", `COREML_REPO` downloaded into the Hugging Face cache (≈ 300 MB,
     once). None otherwise."""
     if os.environ.get("VOXRT_COREML_DIR"):
         return os.environ["VOXRT_COREML_DIR"]
@@ -43,7 +43,7 @@ def resolve_coreml(model_dir: str, device: Optional[str], download: bool) -> Opt
     if os.path.exists(os.path.join(local, "encoder.json")):
         return local
     device = device or os.environ.get("VOXRT_DEVICE", "auto")
-    if not download or device not in ("auto", "ane") or sys.platform != "darwin" or platform.machine() != "arm64":
+    if not download or device != "ane" or sys.platform != "darwin" or platform.machine() != "arm64":
         return None
     try:
         from huggingface_hub import snapshot_download

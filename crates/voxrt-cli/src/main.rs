@@ -29,9 +29,8 @@ AUDIO
 
 ENVIRONMENT
   VOXRT_MODEL_DIR, RAYON_NUM_THREADS, VOXRT_VAD_MIN / VOXRT_VAD_MAX (segment length bounds in 80 ms frames),
-  VOXRT_DEVICE=auto|gpu|ane|cpu (encoder on the Apple GPU when available; ane = Neural Engine for inputs
-    up to ≈ 20 s, needs <model>/coreml from tools/coreml/convert_encoder.py and auto uses it when present;
-    cpu = byte-identical path),
+  VOXRT_DEVICE=auto|gpu|ane|cpu (auto = the Apple GPU when available; ane = Neural Engine, needs the
+    Core ML bundle in <model>/coreml or VOXRT_COREML_DIR; cpu = byte-identical path),
   VOXRT_PROFILE=1 (stage timings on stderr)
 ";
 

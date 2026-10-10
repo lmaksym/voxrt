@@ -44,7 +44,7 @@ fn ane_encoder_tracks_cpu_f32() {
 }
 
 #[test]
-fn auto_switches_to_the_neural_engine_after_background_load() {
+fn auto_stays_on_the_gpu_when_a_bundle_exists() {
     use voxrt::transcriber::{Device, Transcriber};
     let dir = default_model_dir();
     if !have_golden() || !AneEncoder::bundle_dir(&dir).join("encoder.json").exists() {
@@ -52,16 +52,5 @@ fn auto_switches_to_the_neural_engine_after_background_load() {
         return;
     }
     let t = Transcriber::load_on(&dir, Precision::Int8, Device::Auto).unwrap();
-    let audio =
-        voxrt::audio::read_wav(golden_dir().join(&golden_ids()[0]).join("audio.wav")).unwrap();
-    assert!(!t.transcribe_samples(&audio.samples).text.is_empty()); // GPU (or the Neural Engine if already loaded)
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(600);
-    while t.device() != "ane" {
-        assert!(
-            std::time::Instant::now() < deadline,
-            "Neural Engine never loaded"
-        );
-        std::thread::sleep(std::time::Duration::from_millis(100));
-    }
-    assert!(!t.transcribe_samples(&audio.samples).text.is_empty());
+    assert_eq!(t.device(), "gpu"); // the Neural Engine is opt-in (Device::Ane)
 }

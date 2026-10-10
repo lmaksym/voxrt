@@ -131,15 +131,15 @@ Python takes `voxrt.Transcriber(device="auto" | "gpu" | "cpu")` and reports `t.d
 `VOXRT_DEVICE` when the model loads. GPU transcripts follow the f32 reference path (WER 1.96 on test-clean) and are not
 byte-identical to the int8 CPU path.
 
-**Neural Engine.** On Apple silicon (macOS 15+) the encoder layers can run on the Apple Neural Engine, with the
-ternary weights kept exact in 2 bits. It needs a Core ML bundle (≈ 300 MB, fp16 compute): Python downloads
+**Neural Engine.** On Apple silicon (macOS 15+) the encoder layers can run on the Apple Neural Engine, with the ternary
+weights kept exact in 2 bits. It is opt-in (`VOXRT_DEVICE=ane`, Python `device="ane"`) and needs a Core ML bundle (≈ 300
+MB, fp16 compute): Python downloads
 [`MaksL/voxrt-parakeet-redux-coreml`](https://huggingface.co/MaksL/voxrt-parakeet-redux-coreml) on first use; for the
 CLI, Swift and C, clone it into `<model>/coreml` (or point `VOXRT_COREML_DIR` at it), or build it with
-[`tools/coreml/convert_encoder.py`](tools/coreml/README.md). `auto` uses it when present: macOS compiles the bundle for
-the Neural Engine on first load (cached afterwards) in the background while the GPU serves; `VOXRT_DEVICE=ane` waits
-for it. M4 Max: dev50 171×, test-clean 168× (WER 1.96), TED-LIUM long-form 110× (WER 2.53). The M4 Max's 40-core GPU
-is faster on inputs over ≈ 5 s, so `VOXRT_ANE_MAX_FRAMES=64` sends only those to the Neural Engine there; on chips with
-a smaller GPU the Neural Engine keeps the lead to longer inputs.
+[`tools/coreml/convert_encoder.py`](tools/coreml/README.md). macOS compiles the bundle for the Neural Engine on first
+load (≈ 4.7 min, cached afterwards; later loads ≈ 20 s). M4 Max: dev50 171×, test-clean 168× (WER 1.96), TED-LIUM
+long-form 110× (WER 2.53). The M4 Max's 40-core GPU is faster on inputs over ≈ 5 s, so `VOXRT_ANE_MAX_FRAMES=64` sends
+only those to the Neural Engine there; on chips with a smaller GPU the Neural Engine keeps the lead to longer inputs.
 
 ### Python
 
@@ -213,8 +213,8 @@ Errors return `NULL`; `voxrt_last_error()` describes them. Streaming: `voxrt_str
 - [x] Linux x86-64
 - [ ] Linux arm64, Windows — planned
 - [x] Apple GPU (Metal) — encoder and subsampling on Apple-silicon GPUs, the default there
-- [x] Apple Neural Engine (Core ML) — exact 2-bit ternary weights on the Neural Engine; prebuilt bundle on Hugging
-  Face, compiled in the background on first load
+- [x] Apple Neural Engine (Core ML) — exact 2-bit ternary weights on the Neural Engine, opt-in; prebuilt bundle on
+  Hugging Face
 
 ## How it works
 
