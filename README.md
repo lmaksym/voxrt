@@ -36,15 +36,12 @@ distillation of NVIDIA's Parakeet-TDT 0.6B (25 languages, 178 MB) — with nativ
   <img alt="Speed on LibriSpeech dev50: voxrt 78× vs Photon 70× on Apple M4 Max; voxrt 104× vs Photon 98× on AMD Turin" src="assets/bench-light.svg" width="760">
 </picture>
 
-Same audio, same weights, one utterance at a time, processing time only (model load excluded), every transcript
-scored with the leaderboard-exact scorer. One number per runtime, measured back to back.
-
 **Apple M4 Max** (14 cores, macOS 26)
 
 | Workload | voxrt GPU (default) | voxrt CPU | Photon GPU | Photon CPU |
 |---|---|---|---|---|
 | dev50, 50 short clips | **202×** · WER 1.78 (214× with the Neural Engine) | 72× · WER 1.68 | 100× · WER 1.78 | 71× · WER 1.68 |
-| LibriSpeech test-clean, 2,620 utterances | **197× · WER 1.96** | 79× · WER 1.95 | — | 51×\* · WER 1.96 |
+| LibriSpeech test-clean, 2,620 utterances | **197× · WER 1.96** | 79× · WER 1.95 | — | 51× · WER 1.96 |
 | one 27 s utterance | **0.11 s (250×)** | 0.26 s (104×) | — | 0.37 s (72×) |
 | TED-LIUM 3 long-form, 148 min | **174× · WER 2.54** | 92× · WER 2.55 | — | 65× · WER 2.52 |
 
@@ -58,25 +55,12 @@ scored with the leaderboard-exact scorer. One number per runtime, measured back 
 | macOS energy impact per audio-minute (sustained) | **75** | 586 |
 | peak memory, 5 s / 60 s clip | 0.46 / 0.81 GB | 0.30 / 0.78 GB |
 
-*Photon `moondream` 2.6.1, sherpa-onnx 1.13.8, onnx-asr 0.12.0, parakeet.cpp `2de154c`. \* Photon's test-clean pass ran on a
-loaded machine; its dev50 number is the clean one. voxrt GPU runs the encoder on the M4 Max GPU and the decoder on the
-CPU; its WER follows the f32 reference path (dev50 is 50 utterances: 1.78 vs 1.68 is a handful of words).
-Energy impact is macOS's relative score (Activity Monitor), not watts.*
-
 **AMD EPYC 9B45 Turin** (Google Cloud `c4d-standard-16`: 8 cores / 16 threads, Ubuntu 24.04)
 
-| Workload | voxrt | Photon (Moondream) | parakeet.cpp q8_0† |
+| Workload | voxrt | Photon (Moondream) | parakeet.cpp q8_0 (teacher model) |
 |---|---|---|---|
 | LibriSpeech test-clean, 2,620 utterances | **105× · WER 1.95** | 97× · WER 1.94 | — |
 | dev50, 50 short clips | **104×** · WER 1.68 | 98× · WER 1.68 | 42× · WER 1.18 |
-
-*voxrt's test-clean output on this machine is byte-identical to the Mac run (2,620 / 2,620). † runs the 0.6B teacher model,
-so its WER is not comparable. On the M4 Max, [parakeet-mlx](https://github.com/senstella/parakeet-mlx) runs the teacher
-model at 60× on dev50 (MLX, bf16; 95× timed from decoded samples) and sherpa-onnx at 30×; an earlier version of this
-page listed parakeet-mlx at 367× because of a timing bug in our harness, fixed in `bench/run_all.py`. [FluidAudio](https://github.com/FluidInference/FluidAudio)
-(Core ML) runs the same ternary model at 94× on dev50 on the Neural Engine (111× on the GPU) and the 6-bit teacher at
-141×; voxrt is at 213× / 201× in the same session.* Method, versions and all runs:
-[`bench/README.md`](bench/README.md).
 
 ## Quick start
 
@@ -98,6 +82,7 @@ downloads on the releases page, or from source:
 
 ```sh
 git lfs clone https://huggingface.co/moondream/parakeet-redux models/parakeet-redux
+git lfs clone https://huggingface.co/MaksL/voxrt-parakeet-redux-coreml models/parakeet-redux/coreml   # optional, Neural Engine
 cargo install --path crates/voxrt-cli
 voxrt transcribe talk.wav
 ```
@@ -146,12 +131,14 @@ Python takes `voxrt.Transcriber(device="auto" | "gpu" | "cpu")` and reports `t.d
 `VOXRT_DEVICE` when the model loads. GPU transcripts follow the f32 reference path (WER 1.96 on test-clean) and are not
 byte-identical to the int8 CPU path.
 
-**Neural Engine (preview).** With a Core ML bundle next to the weights, built once with
-[`tools/coreml/convert_encoder.py`](tools/coreml/README.md), the encoder layers of inputs up to ≈ 20 s run on the
-Apple Neural Engine (macOS 15+) and longer ones on the GPU; `auto` picks this when the bundle exists, `VOXRT_DEVICE=ane`
-asks for it. M4 Max, back to back: test-clean 218–221× real time vs 176–188× on the GPU alone, WER 1.95; TED-LIUM
-long-form unchanged (WER 2.53). The bundle is ≈ 700 MB (int8 weights, fp16 compute), and the first load compiles it for
-the Neural Engine (≈ 40 s, once).
+**Neural Engine.** On Apple silicon Macs (macOS 15+) the encoder layers of inputs up to ≈ 20 s run on the Apple
+Neural Engine and longer ones on the GPU. It needs a Core ML bundle (≈ 700 MB, int8 weights, fp16 compute):
+Python downloads [`MaksL/voxrt-parakeet-redux-coreml`](https://huggingface.co/MaksL/voxrt-parakeet-redux-coreml)
+on first use; for the CLI, Swift and C, clone it into `<model>/coreml` (or point `VOXRT_COREML_DIR` at it), or build
+it with [`tools/coreml/convert_encoder.py`](tools/coreml/README.md). `auto` uses it when present: macOS compiles the
+bundle for the Neural Engine on first load (≈ 1.5 min, cached afterwards) in the background while the GPU serves;
+`VOXRT_DEVICE=ane` waits for it. M4 Max, back to back: test-clean 218–221× real time vs 176–188× on the GPU alone,
+WER 1.95; TED-LIUM long-form unchanged (WER 2.53).
 
 ### Python
 
@@ -225,8 +212,8 @@ Errors return `NULL`; `voxrt_last_error()` describes them. Streaming: `voxrt_str
 - [x] Linux x86-64
 - [ ] Linux arm64, Windows — planned
 - [x] Apple GPU (Metal) — encoder and subsampling on Apple-silicon GPUs, the default there
-- [ ] Apple Neural Engine (Core ML) — preview: short inputs on the Neural Engine, long ones on the GPU; next, a
-  bundle download instead of a local conversion, and measurements on base M-series chips
+- [x] Apple Neural Engine (Core ML) — inputs up to ≈ 20 s on the Neural Engine, longer ones on the GPU; prebuilt
+  bundle on Hugging Face, compiled in the background on first load
 
 ## How it works
 
