@@ -1,5 +1,7 @@
 [licenses]
-allow = ["Apache-2.0", "MIT", "BSD-2-Clause", "BSD-3-Clause", "Zlib", "Unicode-3.0", "ISC", "CC0-1.0", "MPL-2.0", "Apache-2.0 WITH LLVM-exception"]
+allow = ["Apache-2.0", "MIT", "BSD-2-Clause", "BSD-3-Clause", "Zlib", "Unicode-3.0", "ISC", "CC0-1.0", "MPL-2.0", "Apache-2.0 WITH LLVM-exception",
+  # webpki-roots: the Mozilla CA root list used for HTTPS by the CLI's model download
+  "CDLA-Permissive-2.0"]
 confidence-threshold = 0.9
 
 [bans]
@@ -9,6 +11,10 @@ allow-wildcard-paths = true
 
 [advisories]
 yanked = "deny"
+ignore = [
+  # number_prefix (unmaintained, no vulnerability): byte formatting in hf-hub's progress bar, CLI only
+  { id = "RUSTSEC-2025-0119", reason = "unmaintained, not vulnerable; only formats the download progress" },
+]
 
 [sources]
 unknown-registry = "deny"
