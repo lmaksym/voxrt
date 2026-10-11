@@ -22,7 +22,7 @@ that block's own fp16 per-row scales applied to its output. The whole encoder ru
 
 ## Usage
 
-The Python package downloads this repository on first use on Apple silicon Macs:
+The Python package and the voxrt CLI download this repository on first use on Apple silicon Macs:
 
 ```python
 import voxrt
@@ -30,12 +30,15 @@ t = voxrt.Transcriber(device="ane")  # the default, "auto", runs the encoder on 
 print(t.transcribe("clip.wav").text)
 ```
 
-For the CLI or the Swift/C bindings, place it next to the model:
+```sh
+VOXRT_DEVICE=ane voxrt transcribe clip.wav
+```
+
+For the Swift/C bindings, place it next to the model:
 
 ```sh
-git lfs clone https://huggingface.co/moondream/parakeet-redux models/parakeet-redux
-git lfs clone https://huggingface.co/MaksL/voxrt-parakeet-redux-coreml models/parakeet-redux/coreml
-VOXRT_DEVICE=ane voxrt transcribe clip.wav
+hf download moondream/parakeet-redux --local-dir models/parakeet-redux
+hf download MaksL/voxrt-parakeet-redux-coreml --local-dir models/parakeet-redux/coreml
 ```
 
 ## Files

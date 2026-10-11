@@ -12,6 +12,7 @@
 [![Python](https://img.shields.io/badge/python-3.9%2B-32d058?logo=python&logoColor=969da4&labelColor=353a41)](bindings/python)
 [![Platforms](https://img.shields.io/badge/platforms-macOS%20%7C%20iOS%20%7C%20Linux-32d058?labelColor=353a41)](#hardware-support)
 [![Model](https://img.shields.io/badge/model-moondream%2Fparakeet--redux-32d058?logo=huggingface&logoColor=969da4&labelColor=353a41)](https://huggingface.co/moondream/parakeet-redux)
+[![Core ML](https://img.shields.io/badge/Core%20ML-MaksL%2Fvoxrt--parakeet--redux--coreml-32d058?logo=huggingface&logoColor=969da4&labelColor=353a41)](https://huggingface.co/MaksL/voxrt-parakeet-redux-coreml)
 
 [Quick start](#quick-start) · [Benchmarks](#benchmarks) · [Python](#python) · [Swift](#swift) · [C](#c) · [How it works](#how-it-works)
 
@@ -78,19 +79,21 @@ print(t.transcribe("talk.wav").text)
 ```
 
 **Command line** — prebuilt `voxrt-<version>-darwin-universal` (Apple Silicon + Intel Macs) and `-linux-x86_64`
-downloads on the releases page, or from source:
+downloads on the releases page, or from source; the model downloads on first use here too:
 
 ```sh
-git lfs clone https://huggingface.co/moondream/parakeet-redux models/parakeet-redux
-git lfs clone https://huggingface.co/MaksL/voxrt-parakeet-redux-coreml models/parakeet-redux/coreml   # optional, Neural Engine
 cargo install --path crates/voxrt-cli
-voxrt transcribe talk.wav
+voxrt transcribe talk.wav               # fetches moondream/parakeet-redux into the Hugging Face cache once
 ```
 
 <details>
 <summary>Other ways to install (Swift, C, from source)</summary>
 
 ```sh
+# Swift, C, or a machine without network: download the model yourself (pip install huggingface_hub)
+hf download moondream/parakeet-redux --local-dir models/parakeet-redux
+hf download MaksL/voxrt-parakeet-redux-coreml --local-dir models/parakeet-redux/coreml   # optional, Neural Engine
+
 # Swift (macOS / iOS): build the XCFramework, then add bindings/swift as a local package
 scripts/build_xcframework.sh
 
@@ -116,7 +119,8 @@ cat talk.wav | voxrt transcribe - --quiet                   # stdin
 voxrt transcribe talk.wav --threads 4 --precision f32       # thread count; exact fp32 reference path
 ```
 
-Set `VOXRT_MODEL_DIR` (or pass `--model`) to point at the model directory.
+The model comes from the Hugging Face cache (downloaded on the first run; later runs work offline). Set
+`VOXRT_MODEL_DIR` or pass `--model` to use a local model directory instead.
 
 ### Device
 
@@ -133,9 +137,9 @@ byte-identical to the int8 CPU path.
 
 **Neural Engine.** On Apple silicon (macOS 15+) the encoder layers can run on the Apple Neural Engine, with the ternary
 weights kept exact in 2 bits. It is opt-in (`VOXRT_DEVICE=ane`, Python `device="ane"`) and needs a Core ML bundle (≈ 300
-MB, fp16 compute): Python downloads
-[`MaksL/voxrt-parakeet-redux-coreml`](https://huggingface.co/MaksL/voxrt-parakeet-redux-coreml) on first use; for the
-CLI, Swift and C, clone it into `<model>/coreml` (or point `VOXRT_COREML_DIR` at it), or build it with
+MB, fp16 compute): Python and the CLI download
+[`MaksL/voxrt-parakeet-redux-coreml`](https://huggingface.co/MaksL/voxrt-parakeet-redux-coreml) on first use; for
+Swift and C, place it in `<model>/coreml` (or point `VOXRT_COREML_DIR` at it), or build it with
 [`tools/coreml/convert_encoder.py`](tools/coreml/README.md). macOS compiles the bundle for the Neural Engine on first
 load (≈ 4.7 min, cached afterwards; later loads ≈ 20 s). M4 Max: dev50 171×, test-clean 168× (WER 1.96), TED-LIUM
 long-form 110× (WER 2.53). The M4 Max's 40-core GPU is faster on inputs over ≈ 5 s, so `VOXRT_ANE_MAX_FRAMES=64` sends

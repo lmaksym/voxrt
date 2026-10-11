@@ -1,8 +1,10 @@
 use std::io::{BufRead, Write};
 use std::path::PathBuf;
 
-use voxrt::format::{default_model_dir, ModelFile};
-use voxrt::transcriber::Transcriber;
+use voxrt::format::ModelFile;
+use voxrt::transcriber::{Device, Transcriber};
+
+mod fetch;
 
 const HELP: &str = "voxrt — open-source runtime for moondream/parakeet-redux (ternary Parakeet-TDT), CPU, 25 languages
 
@@ -18,7 +20,8 @@ USAGE
 OPTIONS
   --format txt|srt|json      output format (default txt)
   --timestamps segment|word  include timestamps (txt: per line; json: words array; srt: always segments)
-  --model DIR                model directory (default: $VOXRT_MODEL_DIR or the repo's models/parakeet-redux)
+  --model DIR                model directory (default: $VOXRT_MODEL_DIR, else moondream/parakeet-redux,
+                             downloaded into the Hugging Face cache on first use)
   --threads N                worker threads (default: all cores; also $RAYON_NUM_THREADS)
   --precision int8|f32       int8 kernels (default) or the exact f32 reference path
   --quiet                    no timing line on stderr
@@ -29,8 +32,8 @@ AUDIO
 
 ENVIRONMENT
   VOXRT_MODEL_DIR, RAYON_NUM_THREADS, VOXRT_VAD_MIN / VOXRT_VAD_MAX (segment length bounds in 80 ms frames),
-  VOXRT_DEVICE=auto|gpu|ane|cpu (auto = the Apple GPU when available; ane = Neural Engine, needs the
-    Core ML bundle in <model>/coreml or VOXRT_COREML_DIR; cpu = byte-identical path),
+  VOXRT_DEVICE=auto|gpu|ane|cpu (auto = the Apple GPU when available; ane = Neural Engine, its Core ML
+    bundle from <model>/coreml, VOXRT_COREML_DIR or MaksL/voxrt-parakeet-redux-coreml, downloaded on first use; cpu = byte-identical path),
   VOXRT_PROFILE=1 (stage timings on stderr)
 ";
 
@@ -61,12 +64,26 @@ fn precision(args: &[String]) -> voxrt::ternary_linear::Precision {
     }
 }
 
-fn model_dir(args: &[String]) -> PathBuf {
-    args.iter()
+fn model_dir(args: &[String]) -> anyhow::Result<(PathBuf, bool)> {
+    let explicit = args
+        .iter()
         .position(|a| a == "--model")
         .and_then(|i| args.get(i + 1))
-        .map(PathBuf::from)
-        .unwrap_or_else(default_model_dir)
+        .map(PathBuf::from);
+    fetch::model_dir(explicit, args.iter().any(|a| a == "--quiet"))
+}
+
+/// Load the model (and, for `VOXRT_DEVICE=ane`, the Core ML bundle), downloading them on first use.
+fn load(args: &[String]) -> anyhow::Result<Transcriber> {
+    let quiet = args.iter().any(|a| a == "--quiet");
+    let (dir, default_model) = model_dir(args)?;
+    let coreml = fetch::coreml_dir(&dir, default_model, quiet);
+    Ok(Transcriber::load_full(
+        &dir,
+        precision(args),
+        Device::from_env(),
+        coreml.as_deref(),
+    )?)
 }
 
 fn main() -> anyhow::Result<()> {
@@ -90,8 +107,8 @@ fn main() -> anyhow::Result<()> {
             let dir = args
                 .get(2)
                 .filter(|a| !a.starts_with("--"))
-                .map(PathBuf::from)
-                .unwrap_or_else(default_model_dir);
+                .map(PathBuf::from);
+            let (dir, _) = fetch::model_dir(dir, quiet)?;
             let m = ModelFile::open(&dir)?;
             let infos = m.tensor_infos();
             println!(
@@ -124,7 +141,7 @@ fn main() -> anyhow::Result<()> {
             let format = opt("--format").unwrap_or("txt");
             let ts = opt("--timestamps");
             let t0 = std::time::Instant::now();
-            let tr = Transcriber::load_with(model_dir(&args), precision(&args))?;
+            let tr = load(&args)?;
             let load = t0.elapsed().as_secs_f32();
             let t1 = std::time::Instant::now();
             let a = if file == "-" {
@@ -197,7 +214,7 @@ fn main() -> anyhow::Result<()> {
                 args.get(2).unwrap_or_else(|| usage()),
                 args.get(3).unwrap_or_else(|| usage()),
             );
-            let tr = Transcriber::load_with(model_dir(&args), precision(&args))?;
+            let tr = load(&args)?;
             let root = PathBuf::from(manifest)
                 .parent()
                 .and_then(|p| p.parent())
@@ -269,7 +286,7 @@ fn main() -> anyhow::Result<()> {
                 .collect();
             let repeat: usize = opt("--repeat").and_then(|v| v.parse().ok()).unwrap_or(10);
             let t0 = std::time::Instant::now();
-            let tr = Transcriber::load_with(model_dir(&args), precision(&args))?;
+            let tr = load(&args)?;
             let load_ms = t0.elapsed().as_secs_f64() * 1e3;
             let audio = voxrt::audio::read_wav(file)?.samples;
             let device = tr.device();
@@ -307,7 +324,7 @@ fn main() -> anyhow::Result<()> {
         Some("trace") => {
             // per-stage error table against one golden utterance directory
             let gdir = PathBuf::from(args.get(2).unwrap_or_else(|| usage()));
-            let tr = Transcriber::load_with(model_dir(&args), precision(&args))?;
+            let tr = load(&args)?;
             let a = voxrt::audio::read_wav(gdir.join("audio.wav"))?;
             let (feats, t) = tr.frontend.compute(&a.samples);
             let mut outs = Vec::new();

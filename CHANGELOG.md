@@ -12,6 +12,9 @@
   package downloads it on Apple silicon Macs for the default model with `device="ane"`. The first load compiles it
   for the Neural Engine (≈ 4.7 min on an M4 Max, cached by Core ML); later loads take ≈ 3 s per bucket.
   `Transcriber::load_full` takes the bundle directory explicitly.
+- The CLI downloads `moondream/parakeet-redux` into the Hugging Face cache on first use (≈ 180 MB; the cache the
+  Python package uses, offline afterwards), and with `VOXRT_DEVICE=ane` the Core ML bundle as well. `--model` and
+  `VOXRT_MODEL_DIR` still pick a local directory.
 - `scripts/wer.sh` names results by device; `bench/prod_bench.py` covers the Neural Engine; `bench/power.sh` reads
   per-rail power (CPU / GPU / Neural Engine) with powermetrics.
 
