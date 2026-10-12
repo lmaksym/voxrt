@@ -8,7 +8,28 @@ description = "Fast, deterministic speech-to-text runtime for moondream/parakeet
 readme = "README.md"
 license = { text = "Apache-2.0" }
 requires-python = ">=3.9"
-classifiers = ["Programming Language :: Rust", "Programming Language :: Python :: 3", "License :: OSI Approved :: Apache Software License", "Topic :: Multimedia :: Sound/Audio :: Speech"]
+keywords = ["speech-to-text", "speech-recognition", "asr", "stt", "transcription", "parakeet", "ternary",
+            "apple-silicon", "metal", "coreml", "neural-engine", "rust"]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Developers",
+  "Intended Audience :: Science/Research",
+  "License :: OSI Approved :: Apache Software License",
+  "Operating System :: MacOS",
+  "Operating System :: POSIX :: Linux",
+  "Programming Language :: Rust",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.9",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
+  "Topic :: Multimedia :: Sound/Audio :: Speech",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
+  "Typing :: Typed",
+]
 dynamic = ["version"]
 dependencies = ["huggingface_hub>=0.20"]
 
@@ -17,6 +38,8 @@ audio = ["soundfile>=0.12", "numpy"]   # FLAC / OGG / MP3 input and array conver
 test = ["pytest>=7", "soundfile>=0.12", "numpy"]
 
 [project.urls]
+Homepage = "https://github.com/lmaksym/voxrt"
+Issues = "https://github.com/lmaksym/voxrt/issues"
 Repository = "https://github.com/lmaksym/voxrt"
 Changelog = "https://github.com/lmaksym/voxrt/blob/main/CHANGELOG.md"
 Model = "https://huggingface.co/moondream/parakeet-redux"

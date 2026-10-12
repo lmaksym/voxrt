@@ -7,6 +7,9 @@
 
 **Fast, deterministic speech-to-text on the CPU — a Rust runtime for [Parakeet Redux](https://huggingface.co/moondream/parakeet-redux).**
 
+[![PyPI](https://img.shields.io/pypi/v/voxrt?color=32d058&labelColor=353a41&logo=pypi&logoColor=969da4)](https://pypi.org/project/voxrt/)
+[![Release](https://img.shields.io/github/v/release/lmaksym/voxrt?color=32d058&labelColor=353a41&logo=github&logoColor=969da4)](https://github.com/lmaksym/voxrt/releases/latest)
+[![CI](https://img.shields.io/github/actions/workflow/status/lmaksym/voxrt/ci.yml?branch=main&label=CI&labelColor=353a41&logo=githubactions&logoColor=969da4)](https://github.com/lmaksym/voxrt/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-Apache--2.0-32d058?labelColor=353a41)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-1.89%2B-32d058?logo=rust&logoColor=969da4&labelColor=353a41)](https://www.rust-lang.org)
 [![Python](https://img.shields.io/badge/python-3.9%2B-32d058?logo=python&logoColor=969da4&labelColor=353a41)](bindings/python)
@@ -221,6 +224,11 @@ Errors return `NULL`; `voxrt_last_error()` describes them. Streaming: `voxrt_str
   Hugging Face
 
 ## How it works
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/pipeline-dark.svg">
+  <img alt="Pipeline: audio → log-mel front end with VAD → ternary encoder (on the CPU, the Apple GPU or the Neural Engine) → TDT decoder → text with segment and word timestamps" src="assets/pipeline-light.svg" width="760">
+</picture>
 
 - **Kernels.** Ternary weights are repacked at load (2-bit planes on I8MM, 429 MB resident); activations are quantised
   to int8 per token and 128-column group. GEMMs, the attention scores and the attention context all run in int8.
