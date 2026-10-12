@@ -56,9 +56,21 @@ jobs:
     needs: [cli, wheels]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/')
+    permissions: { contents: write }
     steps:
       - uses: actions/download-artifact@v4
         with: { path: dist, merge-multiple: true }
       - run: cd dist && sha256sum * > SHA256SUMS
       - uses: softprops/action-gh-release@v2
         with: { files: dist/*, generate_release_notes: true }
+  pypi:
+    # trusted publishing: PyPI accepts this workflow (release.yml) of lmaksym/voxrt without a stored token
+    needs: [wheels]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    environment: pypi
+    permissions: { id-token: write }
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { pattern: wheels-*, path: dist, merge-multiple: true }
+      - uses: pypa/gh-action-pypi-publish@release/v1

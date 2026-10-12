@@ -1,6 +1,10 @@
 # voxrt (Python)
 
-Python bindings for the Parakeet Redux runtime: `pip install voxrt` (wheel) or `maturin develop` from this directory.
+Python bindings for [voxrt](https://github.com/lmaksym/voxrt), a Rust runtime for
+[moondream/parakeet-redux](https://huggingface.co/moondream/parakeet-redux) (ternary Parakeet-TDT, 25 languages):
+`pip install voxrt` (wheels for Apple silicon / Intel Macs and Linux x86-64) or `maturin develop` from this directory.
+On Apple silicon the encoder runs on the GPU; `device="ane"` uses the Neural Engine with the Core ML bundle
+[`MaksL/voxrt-parakeet-redux-coreml`](https://huggingface.co/MaksL/voxrt-parakeet-redux-coreml).
 
 ```python
 import voxrt

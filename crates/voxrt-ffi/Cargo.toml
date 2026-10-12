@@ -15,4 +15,4 @@ default = ["metal"]
 metal = ["voxrt_core/metal"]   # Apple GPU encoder (VOXRT_DEVICE=gpu)
 
 [dependencies]
-voxrt_core = { package = "voxrt", version = "0.1.0", path = "../voxrt" }  # the C library itself is named voxrt
+voxrt_core = { package = "voxrt", version = "0.2.0", path = "../voxrt" }  # the C library itself is named voxrt

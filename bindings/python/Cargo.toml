@@ -15,5 +15,5 @@ metal = ["voxrt/metal"]   # Apple GPU encoder (VOXRT_DEVICE=gpu)
 coreml = ["voxrt/coreml"] # Apple Neural Engine encoder (VOXRT_DEVICE=ane)
 
 [dependencies]
-voxrt = { version = "0.1.0", path = "../../crates/voxrt" }
+voxrt = { version = "0.2.0", path = "../../crates/voxrt" }
 pyo3 = { version = "0.29", features = ["extension-module", "abi3-py39"] }

@@ -17,7 +17,10 @@ audio = ["soundfile>=0.12", "numpy"]   # FLAC / OGG / MP3 input and array conver
 test = ["pytest>=7", "soundfile>=0.12", "numpy"]
 
 [project.urls]
+Repository = "https://github.com/lmaksym/voxrt"
+Changelog = "https://github.com/lmaksym/voxrt/blob/main/CHANGELOG.md"
 Model = "https://huggingface.co/moondream/parakeet-redux"
+"Core ML bundle" = "https://huggingface.co/MaksL/voxrt-parakeet-redux-coreml"
 
 [tool.maturin]
 python-source = "python"
