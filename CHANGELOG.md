@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.1 — 2026-10-12
+- Package page only: PyPI description rewritten (badges, pipeline diagram, benchmarks), keywords and classifiers;
+  pipeline diagram in the README. No code changes.
+
 ## 0.2.0 — 2026-10-12
 - Apple Neural Engine encoder (feature `coreml`, opt-in with `VOXRT_DEVICE=ane` / Python `device="ane"`; `auto`
   stays on the GPU, which is faster on an M4 Max): the encoder layers as a Core ML model, one function per length bucket (64–768 frames) over one
